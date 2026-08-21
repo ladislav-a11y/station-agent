@@ -8,8 +8,16 @@ nemá). Viz AGENTS.md pravidlo 1.
 Pravidla (v tomto pořadí):
 1. Pokud AUTO TUNE není zapnuté -> NONE.
 2. Pokud je aktivní HOLD -> NONE.
+2b. Kandidáti mimo aktuálně aktivní ``allowed_bands``/``allowed_modes`` se
+    zahodí -- toto filtrování dělá primárně aggregator (viz aggregator.py),
+    ale engine ho vynucuje i sám (defense-in-depth), aby výběr AUTO TUNE
+    nikdy nezávisel jen na tom, že mu volající předá už filtrovaný seznam.
 3. Žádný kandidát nedosahuje min_score -> NONE.
 4. Rig není naladěn na nic konkrétního -> přeladit na nejlepšího kandidáta.
+4b. Aktuální mód/pásmo riggu už neodpovídá aktivním filtrům (operátor je
+    za běhu vypnul) -> přeladit na nejlepšího kandidáta bez ohledu na
+    min_hold_seconds/min_score_delta -- AUTO TUNE nesmí zůstat na
+    zakázaném módu/pásmu jen proto, že přeladění by "nestálo za to".
 5. Nejlepší kandidát == aktuální stanice -> NONE.
 6. Doba na aktuální stanici < min_hold_seconds -> NONE.
 7. (nejlepší.score - aktuální.score) < min_score_delta -> NONE.
@@ -21,6 +29,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from station_agent.bandplan import freq_to_band
 from station_agent.config import AutoTuneConfig
 from station_agent.db import Database
 from station_agent.models import Candidate, RigState
@@ -44,6 +53,8 @@ class AutoTuneEngine:
         candidates: list[Candidate],
         current: RigState | None,
         now: float | None = None,
+        allowed_bands: set[str] | None = None,
+        allowed_modes: set[str] | None = None,
     ) -> TuneDecision:
         now = time.time() if now is None else now
 
@@ -51,6 +62,11 @@ class AutoTuneEngine:
             return TuneDecision("NONE", None, "AUTO TUNE je vypnuté")
         if self.cfg.hold:
             return TuneDecision("NONE", None, "HOLD režim je aktivní -- přeladění zablokováno")
+
+        if allowed_modes is not None:
+            candidates = [c for c in candidates if c.mode in allowed_modes]
+        if allowed_bands is not None:
+            candidates = [c for c in candidates if c.band in allowed_bands]
 
         eligible = [c for c in candidates if c.score and c.score.total >= self.min_score]
         if not eligible:
@@ -65,6 +81,19 @@ class AutoTuneEngine:
                 "TUNE",
                 best,
                 f"rig není naladěn na žádnou konkrétní stanici, ladím na {best.callsign} "
+                f"(score {best.score.total})",
+            )
+
+        current_band = freq_to_band(current.freq_hz)
+        current_disallowed = (allowed_modes is not None and current.mode not in allowed_modes) or (
+            allowed_bands is not None and current_band not in allowed_bands
+        )
+        if current_disallowed and best.callsign != current.callsign:
+            return TuneDecision(
+                "TUNE",
+                best,
+                f"aktuální stanice {current.callsign} ({current.mode}, {current_band}) už "
+                f"neodpovídá aktivním filtrům módů/pásem, ladím na {best.callsign} "
                 f"(score {best.score.total})",
             )
 

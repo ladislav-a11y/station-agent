@@ -103,6 +103,27 @@ function renderCandidates() {
   }
 }
 
+async function postFilters() {
+  try {
+    const payload = {
+      bands: BAND_ORDER.filter((b) => state.bands.has(b)),
+      modes: MODE_ORDER.filter((m) => state.modes.has(m)),
+    };
+    await fetch("/api/filters", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.error("postFilters selhalo", err);
+  }
+}
+
+function onFilterChange() {
+  renderCandidates();
+  postFilters();
+}
+
 async function refreshCandidates() {
   try {
     const res = await fetch("/api/candidates");
@@ -148,10 +169,13 @@ async function refreshStatus() {
     renderRigStatus(status);
     renderDecision(status);
     if (!statusLoaded) {
-      buildFilterCheckboxes("mode-filters", MODE_ORDER, MODE_LABELS, state.modes, renderCandidates);
-      buildFilterCheckboxes("band-filters", BAND_ORDER, null, state.bands, renderCandidates);
+      state.modes = new Set(status.modes);
+      state.bands = new Set(status.bands);
+      buildFilterCheckboxes("mode-filters", MODE_ORDER, MODE_LABELS, state.modes, onFilterChange);
+      buildFilterCheckboxes("band-filters", BAND_ORDER, null, state.bands, onFilterChange);
       fillAutotuneForm(status);
       statusLoaded = true;
+      renderCandidates();
     }
   } catch (err) {
     console.error("refreshStatus selhalo", err);

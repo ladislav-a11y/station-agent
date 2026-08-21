@@ -51,7 +51,13 @@ class AppState:
     def run_autotune_cycle(self, now: float | None = None) -> TuneDecision:
         now = time.time() if now is None else now
         with self.lock:
-            decision = self.autotune_engine.decide(self.latest_candidates, self.current_rig_state, now=now)
+            decision = self.autotune_engine.decide(
+                self.latest_candidates,
+                self.current_rig_state,
+                now=now,
+                allowed_bands=set(self.config.bands),
+                allowed_modes=set(self.config.modes),
+            )
             if decision.action == "TUNE":
                 new_state = apply_decision(self.rig, decision, self.db)
                 if new_state is not None:

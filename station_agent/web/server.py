@@ -14,6 +14,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from station_agent.app_state import AppState
+from station_agent.bandplan import SUPPORTED_BANDS
+from station_agent.modes import SUPPORTED_MODES
 from station_agent.web.serialization import candidate_to_dict, decision_to_dict, rig_state_to_dict
 
 logger = logging.getLogger(__name__)
@@ -114,7 +116,7 @@ def _make_handler(app_state: AppState):
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path != "/api/autotune":
+            if path not in ("/api/autotune", "/api/filters"):
                 self.send_error(404)
                 return
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -125,19 +127,28 @@ def _make_handler(app_state: AppState):
                 self._send_json({"error": "invalid JSON"}, status=400)
                 return
 
-            with app_state.lock:
-                cfg = app_state.autotune_engine.cfg
-                if "enabled" in payload:
-                    cfg.enabled = bool(payload["enabled"])
-                if "hold" in payload:
-                    cfg.hold = bool(payload["hold"])
-                if "min_hold_seconds" in payload:
-                    cfg.min_hold_seconds = float(payload["min_hold_seconds"])
-                if "min_score_delta" in payload:
-                    cfg.min_score_delta = float(payload["min_score_delta"])
-                if "min_score" in payload:
-                    app_state.autotune_engine.min_score = int(payload["min_score"])
-                    app_state.config.scoring.min_score = int(payload["min_score"])
+            if path == "/api/autotune":
+                with app_state.lock:
+                    cfg = app_state.autotune_engine.cfg
+                    if "enabled" in payload:
+                        cfg.enabled = bool(payload["enabled"])
+                    if "hold" in payload:
+                        cfg.hold = bool(payload["hold"])
+                    if "min_hold_seconds" in payload:
+                        cfg.min_hold_seconds = float(payload["min_hold_seconds"])
+                    if "min_score_delta" in payload:
+                        cfg.min_score_delta = float(payload["min_score_delta"])
+                    if "min_score" in payload:
+                        app_state.autotune_engine.min_score = int(payload["min_score"])
+                        app_state.config.scoring.min_score = int(payload["min_score"])
+            else:  # /api/filters -- GUI checkboxy pro povolené módy/pásma
+                with app_state.lock:
+                    if "bands" in payload:
+                        bands = [b for b in payload["bands"] if b in SUPPORTED_BANDS]
+                        app_state.config.bands = bands
+                    if "modes" in payload:
+                        modes = [m for m in payload["modes"] if m in SUPPORTED_MODES]
+                        app_state.config.modes = modes
 
             self._send_json(_build_status(app_state))
 

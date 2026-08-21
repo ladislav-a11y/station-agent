@@ -74,6 +74,72 @@ class AutoTuneEngineTests(unittest.TestCase):
         decision = engine.decide([make_candidate("OK1ABC", 80)], current=current, now=now)  # delta=10 < 20
         self.assertEqual(decision.action, "NONE")
 
+    def test_disallowed_mode_and_band_candidate_never_selected_even_with_higher_score(self):
+        """Regrese pro bug z praktického GUI testu: CW vypnuté, 40m vypnuté,
+        ale kandidát ZS6DEF 7.030 MHz CW s vyšším skóre stejně vyhrál a
+        AUTO TUNE ho naladil. AUTO TUNE musí vybrat nejlepšího POVOLENÉHO
+        kandidáta, ne kandidáta s absolutně nejvyšším skóre."""
+        cfg = AutoTuneConfig(enabled=True, hold=False)
+        engine = AutoTuneEngine(cfg, min_score=50)
+        forbidden = make_candidate("ZS6DEF", 95, band="40m", mode="CW")
+        best_allowed = make_candidate("OK1ABC", 80, band="20m", mode="SSB")
+        worse_allowed = make_candidate("W1AW", 60, band="15m", mode="FT8")
+
+        decision = engine.decide(
+            [forbidden, best_allowed, worse_allowed],
+            current=None,
+            allowed_bands={"20m", "17m", "15m", "12m", "10m"},  # bez 40m
+            allowed_modes={"SSB", "FT8", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"},  # bez CW
+        )
+
+        self.assertEqual(decision.action, "TUNE")
+        self.assertEqual(decision.candidate.callsign, "OK1ABC")
+        self.assertNotEqual(decision.candidate.callsign, "ZS6DEF")
+
+    def test_filter_change_at_runtime_forces_off_now_forbidden_current_station(self):
+        """Když operátor za běhu vypne mód/pásmo, na kterém je rig právě
+        naladěný, AUTO TUNE na něm nesmí zůstat -- musí přeladit na
+        nejlepšího povoleného kandidáta, i kdyby normálně min_hold_seconds
+        nebo min_score_delta přeladění zablokovaly."""
+        cfg = AutoTuneConfig(enabled=True, hold=False, min_hold_seconds=300, min_score_delta=50)
+        engine = AutoTuneEngine(cfg, min_score=50)
+        now = time.time()
+        # Rig je právě teď naladěný na 7.030 MHz CW (40m) -- operátor to
+        # před chvílí vypnul v GUI.
+        current = RigState(freq_hz=7_030_000, mode="CW", tuned_at=now - 5, callsign="ZS6DEF", score=95)
+        best_allowed = make_candidate("OK1ABC", 60, band="20m", mode="SSB")
+
+        decision = engine.decide(
+            [best_allowed],
+            current=current,
+            now=now,
+            allowed_bands={"20m", "17m", "15m", "12m", "10m"},
+            allowed_modes={"SSB", "FT8", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"},
+        )
+
+        self.assertEqual(decision.action, "TUNE")
+        self.assertEqual(decision.candidate.callsign, "OK1ABC")
+
+    def test_filters_do_not_affect_decision_when_current_still_allowed(self):
+        """Rule 4b se nesmí spustit, pokud aktuální stanice filtrům
+        vyhovuje -- hold/delta gating musí fungovat jako dřív."""
+        cfg = AutoTuneConfig(enabled=True, hold=False, min_hold_seconds=300, min_score_delta=5)
+        engine = AutoTuneEngine(cfg, min_score=50)
+        now = time.time()
+        current = RigState(freq_hz=14_195_000, mode="SSB", tuned_at=now - 5, callsign="W1AW", score=70)
+        best_allowed = make_candidate("OK1ABC", 90, band="20m", mode="SSB")
+
+        decision = engine.decide(
+            [best_allowed],
+            current=current,
+            now=now,
+            allowed_bands={"20m"},
+            allowed_modes={"SSB"},
+        )
+
+        self.assertEqual(decision.action, "NONE")
+        self.assertIn("doba držení", decision.reason)
+
     def test_sufficient_score_delta_after_hold_time_tunes(self):
         cfg = AutoTuneConfig(enabled=True, hold=False, min_hold_seconds=100, min_score_delta=10)
         engine = AutoTuneEngine(cfg, min_score=50)
