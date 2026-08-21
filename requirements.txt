@@ -1,0 +1,7 @@
+# Station Agent běží čistě na standardní knihovně Pythonu (>=3.10).
+# Testy: `python -m unittest discover -s tests -v` nevyžadují nic navíc.
+#
+# Volitelné závislosti (odkomentuj, pokud je chceš použít):
+# PyYAML>=6.0      # plnohodnotný YAML parser pro config.yaml (jinak se použije
+#                  # vestavěný minimální parser ve station_agent/config.py)
+# pytest>=7.0      # alternativní test runner k `python -m unittest`

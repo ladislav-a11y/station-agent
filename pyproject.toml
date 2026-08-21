@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "station-agent"
+version = "0.1.0"
+description = "Radioamaterský DX asistent pro IC-7300 (DX cluster / RBN / PSKReporter agregace, transparentní scoring, AUTO TUNE přes Hamlib/rigctld, Log4OM2 prefill)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Station Agent project" }]
+
+# Jádro aplikace je záměrně čistě na standardní knihovně Pythonu -- žádná
+# instalace závislostí není nutná pro spuštění, testy ani webové GUI.
+dependencies = []
+
+[project.optional-dependencies]
+# Volitelné: pokud je PyYAML nainstalovaný, config loader ho použije pro
+# plný YAML syntax. Bez něj se použije vestavěný minimální YAML parser
+# (postačující pro strukturu config.example.yaml).
+yaml = ["PyYAML>=6.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+station-agent = "station_agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["station_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

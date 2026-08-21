@@ -1,0 +1,82 @@
+# LongHorizon-Harness project defaults.
+# Explicit CLI arguments override these values.
+
+[run]
+agent = "codex"
+model = "gpt-5.6-sol"
+
+# Reasoning depth, forwarded to whichever backend exposes it (Codex through
+# `model_reasoning_effort`, Claude Code through `--effort`, OpenCode through
+# `--variant`). Any value the backend accepts is allowed, so a newer tier does
+# not need a harness release. Leave unset to keep the provider's own setting.
+# reasoning_effort = "high"
+
+env = "local"
+runs_root = "./.lh-harness/runs"
+# Agents work in the directory lh-harness was started from unless set here.
+# workspace = "./workspace"
+# harness_dir = "./.lh-harness/runs/<run-id>/harness"
+# log_dir = "./lh_harness"
+
+# base_url = "https://api.example.com/v1"
+
+prompt_language = "en"
+# Each agent reads its own format; installed plugins are loaded automatically.
+# claude_mcp_config = "/path/to/mcp.json"
+# codex_mcp_config = "/path/to/mcp.toml"
+mcp_add_dirs = []
+
+# Build/cache directories the auditor read-only guard should not snapshot,
+# e.g. ["target", "node_modules", "build", ".venv"]. Agents can still read
+# them. Exclusions must stay inside the workspace; ".git" and harness-owned
+# control/state paths are rejected at startup, and the effective list is
+# echoed at run start and recorded in each audited episode's metadata.
+# Passing --guard-exclude-path replaces this list rather than adding to it.
+guard_exclude_paths = []
+
+max_rounds = 25
+dashboard = true
+# Embedded dashboards use an OS-assigned port by default so concurrent runs
+# cannot accidentally share or race a fixed listener. Standalone `web` keeps
+# its explicit 8799 default for the operator-facing control plane.
+dashboard_port = 0
+
+[run.timeouts]
+manager = 300
+gui_executor = 1800
+cli_executor = 1800
+auditor = 300
+
+[run.roles.manager]
+# agent = "codex"
+# model = "gpt-5.6-sol"
+# reasoning_effort = "high"
+
+[run.roles.executor]
+# agent = "codex"
+# model = "gpt-5.6-sol"
+
+[run.roles.gui_executor]
+# agent = "codex"
+# model = "gpt-5.6-sol"
+
+[run.roles.cli_executor]
+# agent = "codex"
+# model = "gpt-5.6-sol"
+
+[run.roles.auditor]
+# agent = "codex"
+# model = "gpt-5.6-sol"
+
+[run.roles.gui_auditor]
+# agent = "codex"
+# model = "gpt-5.6-sol"
+
+[run.roles.cli_auditor]
+# agent = "codex"
+# model = "gpt-5.6-sol"
+
+# Writes the closing reply to you; falls back to the manager's agent/model.
+[run.roles.final_response]
+# agent = "codex"
+# model = "gpt-5.6-sol"

@@ -1,0 +1,104 @@
+# Station Agent - příklad konfigurace.
+# Zkopíruj jako config.yaml a uprav. Bezpečnostně kritické výchozí hodnoty
+# (rig.mode: mock, web.host: 127.0.0.1) NEMĚŇ, pokud přesně nevíš, co děláš
+# -- viz AGENTS.md.
+
+station:
+  callsign: "OK1EXAMPLE"
+  # QTH lze zadat buď jako Maidenhead locator, nebo přímo lat/lon (stupně).
+  # Pokud je locator vyplněný, má přednost.
+  qth_locator: "JN79FG"
+  latitude: null
+  longitude: null
+
+rig:
+  # mock = žádné reálné spojení s rádiem (výchozí, bezpečné pro testy/vývoj)
+  # live = reálné TCP spojení na rigctld -- explicitní volba uživatele
+  mode: mock
+  rigctld_host: "127.0.0.1"
+  rigctld_port: 4532
+  model: "IC-7300"
+
+# Povolená pásma pro zobrazení kandidátů a AUTO TUNE.
+bands:
+  - "80m"
+  - "40m"
+  - "30m"
+  - "20m"
+  - "17m"
+  - "15m"
+  - "12m"
+  - "10m"
+
+# Povolené módy pro zobrazení kandidátů a AUTO TUNE.
+modes:
+  - "SSB"
+  - "FT8"
+  - "FT4"
+  - "CW"
+  - "RTTY"
+  - "PSK31"
+  - "PSK63"
+  - "OTHER_DIGITAL"
+
+scoring:
+  min_score: 60
+  # Spoty starší než tento počet minut se do scoringu nezapočítávají.
+  spot_max_age_minutes: 15
+  # Váhy jednotlivých faktorů skóre (musí dát dohromady 100).
+  weights:
+    freshness: 25
+    sources: 20
+    needed_dxcc: 35
+    signal: 20
+
+autotune:
+  enabled: false
+  # HOLD: když je true, AUTO TUNE nikdy nepřeladí (ruční pauza operátora).
+  hold: false
+  # Minimální doba (s), po kterou musí rig zůstat na aktuální stanici,
+  # než se vůbec zvažuje přeladění.
+  min_hold_seconds: 120
+  # Nový kandidát musí mít skóre minimálně o tolik bodů vyšší než aktuální
+  # stanice, jinak se nepřelaďuje (zabraňuje "cukání" mezi podobnými spoty).
+  min_score_delta: 8
+
+sources:
+  mock:
+    enabled: true
+  dx_cluster:
+    # PENDING adaptér -- parser řádků je implementovaný a otestovaný,
+    # živé telnet spojení zatím není ověřené proti reálnému clusteru.
+    enabled: false
+    host: "dxc.example.net"
+    port: 7300
+  rbn:
+    # PENDING adaptér -- viz README "Stav externích zdrojů".
+    enabled: false
+    host: "telnet.reversebeacon.net"
+    port: 7000
+  pskreporter:
+    # Živě funkční adaptér (HTTP GET + XML) -- viz README "Stav externích
+    # zdrojů". I tak je defaultně vypnutý: live zdroje vyžadují explicitní
+    # volbu uživatele (viz AGENTS.md pravidlo 4).
+    enabled: false
+    query_url: "https://retrieve.pskreporter.info/query"
+    # Volitelné další query parametry (např. senderCallsign, flowStartSeconds)
+    # -- viz https://www.pskreporter.info/pskdev.html
+    # timeout_s: 15
+
+log4om:
+  # Log4OM2 integrace pouze PŘEDVYPLŇUJE řádek v deníku, nikdy neukládá QSO
+  # automaticky. Payload je implementovaný a otestovaný, odeslání na živou
+  # instanci Log4OM2 je označené jako pending verifikace (viz README).
+  enabled: false
+  host: "127.0.0.1"
+  port: 2333
+
+web:
+  # MUSÍ zůstat loopback adresa -- server.py to i tvrdě vynucuje v kódu.
+  host: "127.0.0.1"
+  port: 8765
+
+database:
+  path: "station_agent.sqlite3"
