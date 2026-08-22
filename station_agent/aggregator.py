@@ -13,6 +13,7 @@ import time
 from collections import defaultdict
 
 from station_agent.adapters.base import SpotSource
+from station_agent.adapters.polling import DEFAULT_BACKOFF_MAX_SECONDS, PolledSource
 from station_agent.bearing import bearing_and_distance
 from station_agent.config import ScoringConfig
 from station_agent.db import Database
@@ -88,28 +89,40 @@ class Aggregator:
         db: Database,
         scoring_cfg: ScoringConfig,
         qth_latlon: tuple[float, float] | None = None,
+        source_poll_interval_seconds: float = 60.0,
+        source_backoff_max_seconds: float = DEFAULT_BACKOFF_MAX_SECONDS,
     ):
         self.sources = sources
         self.db = db
         self.scoring_cfg = scoring_cfg
         self.qth_latlon = qth_latlon
+        self.pollers: list[PolledSource] = [
+            PolledSource(
+                source,
+                interval_seconds=source_poll_interval_seconds,
+                backoff_max_seconds=source_backoff_max_seconds,
+            )
+            for source in sources
+        ]
 
-    def poll_once(self) -> list[Spot]:
-        """Vytáhne spoty ze všech zdrojů, uloží je do DB, vrátí souhrn."""
+    def poll_once(self, now: float | None = None) -> list[Spot]:
+        """Vytáhne spoty ze všech zdrojů (nejvýš jednou za jejich
+        ``interval_seconds`` -- viz ``PolledSource``), nově stažené uloží
+        do DB a vrátí spoty použitelné pro sestavení kandidátů (čerstvé,
+        nebo cache z posledního úspěšného fetche, když se v tomto cyklu
+        na síť nesahalo kvůli throttlingu/backoffu)."""
+        now = time.time() if now is None else now
         all_spots: list[Spot] = []
-        for source in self.sources:
-            try:
-                spots = source.fetch()
-            except NotImplementedError as exc:
-                logger.info("Zdroj %s je pending, přeskočeno: %s", source.name, exc)
-                continue
-            except Exception:
-                logger.exception("Zdroj %s selhal při fetch()", source.name)
-                continue
-            for spot in spots:
+        for poller in self.pollers:
+            spots_for_candidates, freshly_fetched = poller.poll(now)
+            for spot in freshly_fetched:
                 self.db.insert_spot(spot)
-            all_spots.extend(spots)
+            all_spots.extend(spots_for_candidates)
         return all_spots
+
+    def source_status(self, now: float | None = None) -> list[dict]:
+        now = time.time() if now is None else now
+        return [poller.status_dict(now) for poller in self.pollers]
 
     def build_candidates(
         self,

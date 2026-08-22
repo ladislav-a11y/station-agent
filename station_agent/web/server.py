@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -29,6 +30,21 @@ _STATIC_CONTENT_TYPES = {
     ".css": "text/css; charset=utf-8",
 }
 
+# Klient (prohlížeč) může kdykoli zavřít spojení uprostřed zápisu odpovědi
+# (zavřená karta, refresh, ...). Na Windows se to hlásí jako WinError 10053
+# ("Software caused connection abort"), který Python mapuje na
+# ConnectionAbortedError; na jiných platformách typicky BrokenPipeError/
+# ConnectionResetError. Jde o benigní, běžné odpojení klienta -- nesmí
+# skončit dlouhým tracebackem v konzoli (viz _is_benign_disconnect níže).
+_BENIGN_DISCONNECT_ERRORS = (ConnectionAbortedError, BrokenPipeError, ConnectionResetError)
+_BENIGN_DISCONNECT_WINERRORS = {10053, 10054, 10038}
+
+
+def _is_benign_disconnect(exc: BaseException) -> bool:
+    if isinstance(exc, _BENIGN_DISCONNECT_ERRORS):
+        return True
+    return isinstance(exc, OSError) and getattr(exc, "winerror", None) in _BENIGN_DISCONNECT_WINERRORS
+
 
 def _build_status(app_state: AppState) -> dict:
     cfg = app_state.config
@@ -46,6 +62,7 @@ def _build_status(app_state: AppState) -> dict:
             "modes": cfg.modes,
             "rig_mode": cfg.rig.mode,
             "last_decision": decision_to_dict(app_state.last_decision),
+            "sources": app_state.aggregator.source_status(),
         }
 
 
@@ -56,29 +73,50 @@ def _make_handler(app_state: AppState):
         def log_message(self, fmt, *args):  # quieter default logging
             logger.debug("%s - %s", self.address_string(), fmt % args)
 
+        def _safe_send_error(self, status: int, message: str | None = None) -> None:
+            try:
+                self.send_error(status, message)
+            except OSError as exc:
+                if not _is_benign_disconnect(exc):
+                    raise
+                logger.debug("Klient %s se odpojil při zápisu chybové odpovědi: %s", self.address_string(), exc)
+                self.close_connection = True
+
         def _send_json(self, obj, status: int = 200) -> None:
             body = json.dumps(obj).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError as exc:
+                if not _is_benign_disconnect(exc):
+                    raise
+                logger.debug("Klient %s se odpojil při zápisu odpovědi: %s", self.address_string(), exc)
+                self.close_connection = True
 
         def _send_static(self, rel_path: str) -> None:
             target = (STATIC_DIR / rel_path).resolve()
             if STATIC_DIR.resolve() not in target.parents and target != STATIC_DIR.resolve():
-                self.send_error(404)
+                self._safe_send_error(404)
                 return
             if not target.is_file():
-                self.send_error(404)
+                self._safe_send_error(404)
                 return
             content_type = _STATIC_CONTENT_TYPES.get(target.suffix, "application/octet-stream")
             body = target.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except OSError as exc:
+                if not _is_benign_disconnect(exc):
+                    raise
+                logger.debug("Klient %s se odpojil při zápisu odpovědi: %s", self.address_string(), exc)
+                self.close_connection = True
 
         def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
             path = urlparse(self.path).path
@@ -112,12 +150,12 @@ def _make_handler(app_state: AppState):
                     }
                 )
             else:
-                self.send_error(404)
+                self._safe_send_error(404)
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
             if path not in ("/api/autotune", "/api/filters", "/api/tune"):
-                self.send_error(404)
+                self._safe_send_error(404)
                 return
             length = int(self.headers.get("Content-Length", "0") or "0")
             raw = self.rfile.read(length) if length else b"{}"
@@ -185,6 +223,19 @@ def _make_handler(app_state: AppState):
     return Handler
 
 
+class _QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """Jako ``ThreadingHTTPServer``, ale benigní odpojení klienta (zavřená
+    karta v prohlížeči apod.) nezaloguje jako dlouhý traceback -- viz
+    ``_is_benign_disconnect`` a AGENTS.md/dod bod o WinError 10053."""
+
+    def handle_error(self, request, client_address) -> None:
+        exc = sys.exc_info()[1]
+        if exc is not None and _is_benign_disconnect(exc):
+            logger.debug("Klient %s se odpojil: %s", client_address, exc)
+            return
+        super().handle_error(request, client_address)
+
+
 def create_server(app_state: AppState) -> ThreadingHTTPServer:
     host = app_state.config.web.host
     if host not in LOOPBACK_HOSTS:
@@ -193,4 +244,4 @@ def create_server(app_state: AppState) -> ThreadingHTTPServer:
             "toto omezení je vynucené v kódu bez ohledu na config.yaml."
         )
     handler_cls = _make_handler(app_state)
-    return ThreadingHTTPServer((host, app_state.config.web.port), handler_cls)
+    return _QuietThreadingHTTPServer((host, app_state.config.web.port), handler_cls)

@@ -27,6 +27,24 @@ h1 {
   font-size: 1rem;
 }
 
+.sources-status {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.source-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.source-ok { background: #2e7d3244; }
+.source-pending { background: #8884; }
+.source-error { background: #c6282844; }
+.source-backoff { background: #f9a82544; }
+
 .panel {
   margin-top: 1.25rem;
   padding: 1rem;

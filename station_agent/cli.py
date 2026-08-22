@@ -50,7 +50,14 @@ def build_app_state(config: AppConfig) -> AppState:
         logger.warning("QTH není nakonfigurováno, bearing nebude dostupný: %s", exc)
         qth_latlon = None
 
-    aggregator = Aggregator(build_sources(config), db, config.scoring, qth_latlon=qth_latlon)
+    aggregator = Aggregator(
+        build_sources(config),
+        db,
+        config.scoring,
+        qth_latlon=qth_latlon,
+        source_poll_interval_seconds=config.polling.source_interval_seconds,
+        source_backoff_max_seconds=config.polling.source_backoff_max_seconds,
+    )
     app_state = AppState(config, db, rig, aggregator)
     if config.rig.mode == "live":
         app_state.sync_rig_state_from_hardware()

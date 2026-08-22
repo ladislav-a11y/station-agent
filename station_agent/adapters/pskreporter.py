@@ -20,11 +20,14 @@ internetu (viz AGENTS.md "Testy běží bez internetu").
 
 from __future__ import annotations
 
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
-from station_agent.adapters.base import SpotSource
+from station_agent.adapters.base import RateLimitedError, SpotSource
 from station_agent.models import Spot
 
 DEFAULT_QUERY_URL = "https://retrieve.pskreporter.info/query"
@@ -70,6 +73,27 @@ def parse_pskreporter_report(xml_text: str) -> list[Spot]:
     return spots
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    """Naparsuje hodnotu HTTP hlavičky ``Retry-After`` -- podle RFC 7231 to
+    může být buď počet sekund, nebo HTTP-date. Vrátí ``None``, pokud
+    hlavička chybí nebo ji nejde naparsovat (volající pak použije vlastní
+    exponenciální backoff)."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        pass
+    try:
+        dt = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return max((dt - datetime.now(timezone.utc)).total_seconds(), 0.0)
+
+
 def fetch_pskreporter_xml(
     query_url: str,
     params: dict[str, str] | None = None,
@@ -80,15 +104,27 @@ def fetch_pskreporter_xml(
     mluví se sítí -- oddělené od ``parse_pskreporter_report``, aby šel
     parser testovat čistě na fixture datech a síťová vrstva samostatně proti
     lokálnímu testovacímu HTTP serveru (viz tests/test_adapters_live.py).
+
+    HTTP 429 (Too Many Requests) se nepropaguje jako obecná ``HTTPError``,
+    ale jako ``RateLimitedError`` s ``retry_after_seconds`` naparsovaným
+    z ``Retry-After`` hlavičky (pokud ji server poslal) -- polling vrstva
+    (``adapters/polling.py``) díky tomu ví, jak dlouho má počkat, než zdroj
+    zkusí znovu.
     """
     url = query_url
     if params:
         separator = "&" if "?" in query_url else "?"
         url = f"{query_url}{separator}{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout_s) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        return response.read().decode(charset)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read().decode(charset)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            retry_after = _parse_retry_after(exc.headers.get("Retry-After") if exc.headers else None)
+            raise RateLimitedError(retry_after_seconds=retry_after) from exc
+        raise
 
 
 class PSKReporterAdapter(SpotSource):

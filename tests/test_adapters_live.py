@@ -15,8 +15,11 @@ from __future__ import annotations
 import threading
 import unittest
 import urllib.error
+from email.utils import format_datetime
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from station_agent.adapters.base import RateLimitedError
 from station_agent.adapters.pskreporter import PSKReporterAdapter, fetch_pskreporter_xml
 
 PSKR_XML = b"""<?xml version="1.0"?>
@@ -45,6 +48,44 @@ class _PskrHandler(BaseHTTPRequestHandler):
 class _FailingHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         self.send_response(503)
+        self.end_headers()
+
+    def log_message(self, format, *args):  # noqa: A002
+        pass
+
+
+class _RateLimitedHandler(BaseHTTPRequestHandler):
+    """Simuluje PSKReporter vracející HTTP 429 s ``Retry-After: 30`` (v
+    sekundách) -- reprodukuje reálný live test, kde PSKReporter začal
+    vracet 429 kvůli příliš častým dotazům."""
+
+    def do_GET(self):  # noqa: N802
+        self.send_response(429)
+        self.send_header("Retry-After", "30")
+        self.end_headers()
+
+    def log_message(self, format, *args):  # noqa: A002
+        pass
+
+
+class _RateLimitedNoRetryAfterHandler(BaseHTTPRequestHandler):
+    def do_GET(self):  # noqa: N802
+        self.send_response(429)
+        self.end_headers()
+
+    def log_message(self, format, *args):  # noqa: A002
+        pass
+
+
+class _RateLimitedHttpDateHandler(BaseHTTPRequestHandler):
+    """``Retry-After`` může být podle RFC 7231 i HTTP-date, ne jen počet
+    sekund -- ověřuje se, že to ``fetch_pskreporter_xml`` umí naparsovat."""
+
+    retry_after_date = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=45), usegmt=True)
+
+    def do_GET(self):  # noqa: N802
+        self.send_response(429)
+        self.send_header("Retry-After", self.retry_after_date)
         self.end_headers()
 
     def log_message(self, format, *args):  # noqa: A002
@@ -91,6 +132,44 @@ class PSKReporterLiveFetchErrorTests(_LocalHttpServerTestCase):
         adapter = PSKReporterAdapter(query_url=self.base_url, timeout_s=5)
         with self.assertRaises(urllib.error.HTTPError):
             adapter.fetch()
+
+
+class PSKReporterRateLimitTests(_LocalHttpServerTestCase):
+    """Live test odhalil HTTP 429 -- ověřuje se, že se to nepropaguje jako
+    obecná HTTPError, ale jako RateLimitedError s naparsovaným Retry-After
+    (viz station_agent/adapters/polling.py, které na tuto výjimku reaguje
+    backoffem)."""
+
+    handler_class = _RateLimitedHandler
+
+    def test_429_raises_rate_limited_error_not_http_error(self):
+        with self.assertRaises(RateLimitedError) as ctx:
+            fetch_pskreporter_xml(self.base_url, timeout_s=5)
+        self.assertAlmostEqual(ctx.exception.retry_after_seconds, 30.0, delta=1.0)
+
+    def test_adapter_fetch_also_raises_rate_limited_error(self):
+        adapter = PSKReporterAdapter(query_url=self.base_url, timeout_s=5)
+        with self.assertRaises(RateLimitedError):
+            adapter.fetch()
+
+
+class PSKReporterRateLimitNoRetryAfterTests(_LocalHttpServerTestCase):
+    handler_class = _RateLimitedNoRetryAfterHandler
+
+    def test_429_without_retry_after_header_leaves_it_none(self):
+        with self.assertRaises(RateLimitedError) as ctx:
+            fetch_pskreporter_xml(self.base_url, timeout_s=5)
+        self.assertIsNone(ctx.exception.retry_after_seconds)
+
+
+class PSKReporterRateLimitHttpDateTests(_LocalHttpServerTestCase):
+    handler_class = _RateLimitedHttpDateHandler
+
+    def test_retry_after_as_http_date_is_parsed(self):
+        with self.assertRaises(RateLimitedError) as ctx:
+            fetch_pskreporter_xml(self.base_url, timeout_s=5)
+        # Handler nastavil Retry-After ~45 s do budoucnosti jako HTTP-date.
+        self.assertAlmostEqual(ctx.exception.retry_after_seconds, 45.0, delta=5.0)
 
 
 if __name__ == "__main__":

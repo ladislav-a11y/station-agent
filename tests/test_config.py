@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from station_agent.config import WebConfig, _MiniYamlParser, load_config
+from station_agent.config import PollingConfig, WebConfig, _MiniYamlParser, load_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -85,6 +85,29 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.log4om.port, 2333)
         self.assertEqual(config.web.port, 9999)
 
+    def test_polling_defaults_when_section_missing(self):
+        # MINIMAL_YAML výše nemá žádnou sekci `polling:` -- musí se použít
+        # bezpečný výchozí interval (>= 60s), aby živé zdroje (PSKReporter)
+        # nikdy nebyly dotazovány častěji, i když si uživatel config.yaml
+        # nedoplní.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(MINIMAL_YAML, encoding="utf-8")
+            config = load_config(path)
+        self.assertGreaterEqual(config.polling.source_interval_seconds, 60.0)
+        self.assertEqual(config.polling.source_backoff_max_seconds, 1800.0)
+
+    def test_polling_section_is_parsed(self):
+        yaml_text = MINIMAL_YAML + (
+            "\npolling:\n  source_interval_seconds: 90\n  source_backoff_max_seconds: 600\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(yaml_text, encoding="utf-8")
+            config = load_config(path)
+        self.assertEqual(config.polling.source_interval_seconds, 90.0)
+        self.assertEqual(config.polling.source_backoff_max_seconds, 600.0)
+
     def test_example_config_loads(self):
         config = load_config(REPO_ROOT / "config.example.yaml")
         self.assertEqual(config.rig.mode, "mock")
@@ -95,6 +118,16 @@ class LoadConfigTests(unittest.TestCase):
         self.assertFalse(config.sources["pskreporter"].enabled)
         self.assertFalse(config.log4om.enabled)
         self.assertEqual(sum(config.scoring.weights.values()), 100)
+        self.assertGreaterEqual(config.polling.source_interval_seconds, 60.0)
+
+
+class PollingConfigSafetyTests(unittest.TestCase):
+    def test_rejects_non_positive_interval(self):
+        with self.assertRaises(ValueError):
+            PollingConfig(source_interval_seconds=0)
+
+    def test_default_interval_is_at_least_60s(self):
+        self.assertGreaterEqual(PollingConfig().source_interval_seconds, 60.0)
 
 
 class WebConfigSafetyTests(unittest.TestCase):

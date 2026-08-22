@@ -208,6 +208,31 @@ class DatabaseConfig:
 
 
 @dataclass
+class PollingConfig:
+    """Frekvence dotazování ŽIVÝCH externích zdrojů (PSKReporter, ...) --
+
+    úmyslně oddělená od frekvence obnovování GUI (to obnovuje tabulku
+    kandidátů z DB každých pár sekund bez ohledu na tento interval, viz
+    ``web/static/app.js``) i od intervalu vnitřní polling smyčky
+    (``--poll-interval``, řídí i AUTO TUNE cyklus). ``source_interval_seconds``
+    je minimální doba mezi dvěma reálnými HTTP dotazy na tentýž zdroj --
+    výchozí hodnota (60 s) je zvolena tak, aby PSKReporter nikdy nedostával
+    dotazy častěji, než jeho API rozumně snese (viz HTTP 429 z živého
+    testu).
+    """
+
+    source_interval_seconds: float = 60.0
+    source_backoff_max_seconds: float = 1800.0
+
+    def __post_init__(self) -> None:
+        if self.source_interval_seconds <= 0:
+            raise ValueError(
+                "polling.source_interval_seconds musí být kladné číslo, "
+                f"dostal jsem {self.source_interval_seconds!r}"
+            )
+
+
+@dataclass
 class AppConfig:
     station: StationConfig = field(default_factory=StationConfig)
     rig: RigConfig = field(default_factory=RigConfig)
@@ -219,6 +244,7 @@ class AppConfig:
     log4om: Log4OMConfig = field(default_factory=Log4OMConfig)
     web: WebConfig = field(default_factory=WebConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    polling: PollingConfig = field(default_factory=PollingConfig)
 
 
 def _build_source_config(raw: dict) -> SourceConfig:
@@ -284,6 +310,12 @@ def config_from_dict(raw: dict) -> AppConfig:
     db_raw = raw.get("database", {}) or {}
     database = DatabaseConfig(path=db_raw.get("path", "station_agent.sqlite3"))
 
+    polling_raw = raw.get("polling", {}) or {}
+    polling = PollingConfig(
+        source_interval_seconds=float(polling_raw.get("source_interval_seconds", 60.0)),
+        source_backoff_max_seconds=float(polling_raw.get("source_backoff_max_seconds", 1800.0)),
+    )
+
     return AppConfig(
         station=station,
         rig=rig,
@@ -295,6 +327,7 @@ def config_from_dict(raw: dict) -> AppConfig:
         log4om=log4om,
         web=web,
         database=database,
+        polling=polling,
     )
 
 

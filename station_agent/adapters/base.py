@@ -19,6 +19,21 @@ class SpotSource(ABC):
         raise NotImplementedError
 
 
+class RateLimitedError(Exception):
+    """Zdroj odpověděl HTTP 429 (Too Many Requests).
+
+    Adaptéry, které mluví po HTTP (viz ``pskreporter.py``), vyhazují tuto
+    výjimku místo obecné ``HTTPError``, aby ji polling vrstva
+    (``adapters/polling.py``) mohla odlišit od ostatních chyb a reagovat
+    exponenciálním backoffem -- případně respektovat ``Retry-After``
+    hlavičku, pokud ji server poslal (``retry_after_seconds``).
+    """
+
+    def __init__(self, message: str = "HTTP 429 Too Many Requests", retry_after_seconds: float | None = None):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
 class PendingSpotSource(SpotSource):
     """Základ pro adaptéry na živé externí služby, které zatím nebyly
     ověřeny proti reálnému serveru (viz README "Stav externích zdrojů").

@@ -100,5 +100,59 @@ class AggregatorIntegrationTests(unittest.TestCase):
         self.assertLess(target_after.score.total, target.score.total)
 
 
+class AggregatorPollingThrottleTests(unittest.TestCase):
+    """Reprodukuje live problém: GUI refreshuje po pár sekundách, ale
+    Aggregator.poll_once() nesmí kvůli tomu sáhnout na (živý) zdroj častěji
+    než jednou za jeho nakonfigurovaný interval -- viz adapters/polling.py.
+    """
+
+    def setUp(self):
+        self.db = Database(":memory:")
+        self.scoring_cfg = ScoringConfig(weights=dict(DEFAULT_WEIGHTS), spot_max_age_minutes=15)
+
+    def tearDown(self):
+        self.db.close()
+
+    def test_repeated_poll_once_within_interval_does_not_refetch_or_duplicate_db_rows(self):
+        aggregator = Aggregator(
+            [MockAdapter()], self.db, self.scoring_cfg, source_poll_interval_seconds=60
+        )
+        # simulace tří GUI refreshů po ~3s (přesně situace z live testu)
+        aggregator.poll_once(now=1000.0)
+        aggregator.poll_once(now=1003.0)
+        aggregator.poll_once(now=1006.0)
+
+        stored = self.db.recent_spots(max_age_seconds=1_000_000, now=1006.0)
+        self.assertEqual(len(stored), 8, "throttlovaný poll nesmí opakovaně vkládat stejné spoty")
+
+    def test_poll_once_refetches_after_interval_elapses(self):
+        aggregator = Aggregator(
+            [MockAdapter()], self.db, self.scoring_cfg, source_poll_interval_seconds=60
+        )
+        aggregator.poll_once(now=1000.0)
+        aggregator.poll_once(now=1065.0)  # 65s -- za hranicí intervalu
+
+        stored = self.db.recent_spots(max_age_seconds=1_000_000, now=1065.0)
+        self.assertEqual(len(stored), 16, "po uplynutí intervalu se má znovu fetchnout a uložit")
+
+    def test_source_status_reports_pending_and_ok(self):
+        aggregator = Aggregator(
+            [MockAdapter(), DXClusterAdapter(host="x", port=1)], self.db, self.scoring_cfg
+        )
+        aggregator.poll_once(now=1000.0)
+        statuses = {s["name"]: s for s in aggregator.source_status(now=1000.0)}
+        self.assertEqual(statuses["mock"]["status"], "ok")
+        self.assertEqual(statuses["dx_cluster"]["status"], "pending")
+
+    def test_build_candidates_still_works_from_cache_when_throttled(self):
+        aggregator = Aggregator(
+            [MockAdapter()], self.db, self.scoring_cfg, source_poll_interval_seconds=60, qth_latlon=(50.0, 14.0)
+        )
+        aggregator.poll_once(now=1000.0)
+        aggregator.poll_once(now=1003.0)  # throttlováno, ale kandidáti musí zůstat dostupní
+        candidates = aggregator.build_candidates(now=1003.0)
+        self.assertGreater(len(candidates), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

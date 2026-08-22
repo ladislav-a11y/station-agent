@@ -208,6 +208,15 @@ API, takže má plnou implementaci klienta (`station_agent/adapters/pskreporter.
 v konfiguraci je i tak defaultně `enabled: false` -- live zdroje jsou vždy
 explicitní volba uživatele (viz AGENTS.md pravidlo 4).
 
+Frekvence GUI refreshe (viz `web/static/app.js`, každých 5 s) je záměrně
+oddělená od frekvence reálných dotazů na živé zdroje jako PSKReporter --
+`Aggregator`/`PolledSource` (`station_agent/adapters/polling.py`) na síť
+sáhne nejvýš jednou za `polling.source_interval_seconds` z configu
+(výchozí 60 s), mezitím vrací naposledy úspěšně stažená data. Při HTTP 429
+(Too Many Requests) se zdroj přepne do backoffu -- respektuje `Retry-After`
+hlavičku, jinak čeká exponenciálně rostoucí interval -- a stav/poslední
+chybu každého zdroje lze zjistit v `/api/status` (`sources`).
+
 ## Konfigurace
 
 Viz [config.example.yaml](config.example.yaml) — obsahuje QTH (locator nebo

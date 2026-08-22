@@ -102,3 +102,12 @@ web:
 
 database:
   path: "station_agent.sqlite3"
+
+polling:
+  # Minimální doba (s) mezi dvěma reálnými dotazy na TENTÝŽ živý zdroj
+  # (např. PSKReporter). Je záměrně oddělená od frekvence obnovování GUI
+  # (to se obnovuje z DB každých pár sekund bez ohledu na tuto hodnotu) --
+  # nesnižuj pod 60, jinak riskuješ HTTP 429 Too Many Requests.
+  source_interval_seconds: 60
+  # Horní strop pro exponenciální backoff po opakovaných HTTP 429 odpovědích.
+  source_backoff_max_seconds: 1800

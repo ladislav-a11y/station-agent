@@ -4,6 +4,7 @@ výhradně na loopback adrese (viz AGENTS.md pravidlo 5)."""
 from __future__ import annotations
 
 import json
+import socket
 import threading
 import unittest
 import urllib.error
@@ -16,6 +17,7 @@ from station_agent.config import AppConfig, WebConfig
 from station_agent.db import Database
 from station_agent.rig.mock_rig import MockRig
 from station_agent.scoring import DEFAULT_WEIGHTS, ScoringConfig
+from station_agent.web import server as server_module
 from station_agent.web.server import create_server
 
 
@@ -96,6 +98,19 @@ class WebApiTests(unittest.TestCase):
         self.assertIn("autotune", data)
         self.assertIn("min_score", data)
         self.assertEqual(data["rig_mode"], "mock")
+
+    def test_status_endpoint_reports_source_status(self):
+        self.app_state.refresh_candidates()
+        status, _, body = self._get("/api/status")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertIn("sources", data)
+        names = [s["name"] for s in data["sources"]]
+        self.assertIn("mock", names)
+        mock_status = next(s for s in data["sources"] if s["name"] == "mock")
+        for key in ("status", "last_error", "last_success_age_seconds", "backoff_remaining_seconds", "cached_spot_count"):
+            self.assertIn(key, mock_status)
+        self.assertEqual(mock_status["status"], "ok")
 
     def test_post_autotune_updates_settings(self):
         status, data = self._post_json(
@@ -251,6 +266,109 @@ class AutoTuneRespectsGuiFiltersTests(unittest.TestCase):
         self.assertNotEqual(second_decision.candidate.callsign, "ZS6DEF")
         self.assertNotEqual(second_decision.candidate.mode, "CW")
         self.assertNotEqual(second_decision.candidate.band, "40m")
+
+
+class _RaisingWfile:
+    def __init__(self, exc: BaseException):
+        self._exc = exc
+
+    def write(self, data):
+        raise self._exc
+
+
+class BenignClientDisconnectTests(unittest.TestCase):
+    """Live test hlásil ConnectionAbortedError/BrokenPipeError/WinError 10053
+    při zápisu HTTP odpovědi, když prohlížeč mezitím zavře spojení -- ty se
+    musí ošetřit jako benigní odpojení klienta (bez dlouhého tracebacku),
+    ne jako neočekávaná chyba serveru. Testuje se přímo na vrstvě
+    Handler._send_json/_send_static, protože reprodukovat přesné OS chyby
+    přes reálný socket je nedeterministické (timing race)."""
+
+    def setUp(self):
+        self.app_state = build_test_app_state()
+
+    def tearDown(self):
+        self.app_state.db.close()
+
+    def _handler(self):
+        handler_cls = server_module._make_handler(self.app_state)
+        handler = handler_cls.__new__(handler_cls)
+        handler.client_address = ("127.0.0.1", 55000)
+        handler.request_version = "HTTP/1.1"
+        handler.command = "GET"
+        handler.requestline = "GET / HTTP/1.1"
+        handler.close_connection = False
+        handler._headers_buffer = []
+        return handler
+
+    def _assert_send_json_swallows(self, exc: BaseException):
+        handler = self._handler()
+        handler.wfile = _RaisingWfile(exc)
+        handler._send_json({"ok": True})  # nesmí propagovat výjimku
+        self.assertTrue(handler.close_connection)
+
+    def test_send_json_swallows_connection_aborted_error(self):
+        self._assert_send_json_swallows(ConnectionAbortedError("client aborted"))
+
+    def test_send_json_swallows_broken_pipe_error(self):
+        self._assert_send_json_swallows(BrokenPipeError("broken pipe"))
+
+    def test_send_json_swallows_connection_reset_error(self):
+        self._assert_send_json_swallows(ConnectionResetError("connection reset"))
+
+    def test_send_json_swallows_winerror_10053(self):
+        exc = OSError("Software caused connection abort")
+        exc.winerror = 10053
+        self._assert_send_json_swallows(exc)
+
+    def test_send_json_reraises_unrelated_oserror(self):
+        handler = self._handler()
+        handler.wfile = _RaisingWfile(OSError("nesouvisející chyba"))
+        with self.assertRaises(OSError):
+            handler._send_json({"ok": True})
+
+    def test_send_static_swallows_connection_aborted_error(self):
+        handler = self._handler()
+        handler.wfile = _RaisingWfile(ConnectionAbortedError("client aborted"))
+        handler._send_static("index.html")  # nesmí propagovat výjimku
+        self.assertTrue(handler.close_connection)
+
+    def test_is_benign_disconnect_helper(self):
+        self.assertTrue(server_module._is_benign_disconnect(ConnectionAbortedError()))
+        self.assertTrue(server_module._is_benign_disconnect(BrokenPipeError()))
+        self.assertTrue(server_module._is_benign_disconnect(ConnectionResetError()))
+        winerr = OSError()
+        winerr.winerror = 10053
+        self.assertTrue(server_module._is_benign_disconnect(winerr))
+        self.assertFalse(server_module._is_benign_disconnect(ValueError("not an OSError")))
+        self.assertFalse(server_module._is_benign_disconnect(OSError("unrelated")))
+
+
+class AbruptSocketDisconnectIntegrationTests(unittest.TestCase):
+    """Doplňkový end-to-end test: klient se odpojí hned po odeslání
+    requestu, aniž by si přečetl odpověď -- server nesmí spadnout ani
+    přestat obsluhovat další klienty."""
+
+    def setUp(self):
+        self.app_state = build_test_app_state()
+        self.server = create_server(self.app_state)
+        self.host, self.port = self.server.server_address[0], self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join(timeout=5)
+        self.server.server_close()
+        self.app_state.db.close()
+
+    def test_server_stays_responsive_after_abrupt_client_disconnect(self):
+        sock = socket.create_connection((self.host, self.port), timeout=2)
+        sock.sendall(b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        sock.close()  # odpojíme se dřív, než si přečteme odpověď
+
+        with urllib.request.urlopen(f"http://{self.host}:{self.port}/api/status", timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
 
 
 class CreateServerSafetyTests(unittest.TestCase):

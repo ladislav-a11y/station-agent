@@ -39,7 +39,7 @@ class AppState:
     def refresh_candidates(self, now: float | None = None) -> list[Candidate]:
         now = time.time() if now is None else now
         with self.lock:
-            self.aggregator.poll_once()
+            self.aggregator.poll_once(now=now)
             candidates = self.aggregator.build_candidates(
                 allowed_bands=set(self.config.bands),
                 allowed_modes=set(self.config.modes),

@@ -180,6 +180,39 @@ function renderRigStatus(status) {
   el.textContent = `rig (${status.rig_mode}): ${(rig.freq_hz / 1e6).toFixed(3)} MHz ${rig.mode}${call}`;
 }
 
+const SOURCE_STATUS_LABELS = {
+  ok: "OK",
+  pending: "pending",
+  error: "chyba",
+  backoff: "backoff (429)",
+};
+
+function renderSourcesStatus(status) {
+  const el = document.getElementById("sources-status");
+  const sources = status.sources || [];
+  if (sources.length === 0) {
+    el.textContent = "";
+    return;
+  }
+  el.innerHTML = sources
+    .map((s) => {
+      const label = SOURCE_STATUS_LABELS[s.status] ?? s.status;
+      const parts = [`${s.name}: ${label}`];
+      if (s.last_success_age_seconds != null) {
+        parts.push(`data stará ${fmtAge(s.last_success_age_seconds)}`);
+      }
+      if (s.backoff_remaining_seconds != null) {
+        parts.push(`další pokus za ${fmtAge(s.backoff_remaining_seconds)}`);
+      }
+      if (s.last_error && (s.status === "error" || s.status === "backoff")) {
+        parts.push(s.last_error);
+      }
+      const cls = "source-badge source-" + s.status;
+      return `<span class="${cls}" title="${parts.join(" -- ")}">${parts.join(" -- ")}</span>`;
+    })
+    .join(" ");
+}
+
 function renderDecision(status) {
   const el = document.getElementById("autotune-decision");
   const d = status.last_decision;
@@ -201,6 +234,7 @@ async function refreshStatus() {
     const res = await fetch("/api/status");
     const status = await res.json();
     renderRigStatus(status);
+    renderSourcesStatus(status);
     renderDecision(status);
     if (!statusLoaded) {
       state.modes = new Set(status.modes);
