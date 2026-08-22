@@ -8,3 +8,5 @@ config.yaml
 *.egg-info/
 build/
 dist/
+
+*.sqlite3-journal
