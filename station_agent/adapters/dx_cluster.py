@@ -2,10 +2,19 @@
 
 Parsování standardního řádku DX clusteru (formát "DX de <SPOTTER>:") je
 plně implementované a testované na fixture datech -- viz
-``tests/test_adapters_parsing.py``. Živé telnet spojení na reálný cluster
-NENÍ implementováno (PENDING), protože ho nejde ověřit bez skutečné sítě a
-reálného serveru -- viz README.md "Stav externích zdrojů" a AGENTS.md
-pravidlo 6 ("Nefalšuj externí služby").
+``tests/test_adapters_parsing.py``. Živé telnet spojení používá sdílený
+generický klient ``LiveTelnetSpotSource`` (``adapters/telnet_source.py``) --
+skutečný TCP socket, login callsignem, čtení řádků a reconnect/backoff
+nezávislý na ostatních zdrojích. ``fetch()`` vyhazuje ``SourceNotReadyError``
+(GUI stav "pending"), dokud adaptér poprvé skutečně nenaváže spojení a
+nenaparsuje aspoň jeden reálný spot -- viz README.md "Stav externích
+zdrojů" a AGENTS.md pravidlo 6 ("Nefalšuj externí služby").
+
+Výchozí ``host``/``port`` (``DEFAULT_HOST``/``DEFAULT_PORT``) ukazují na
+běžně používaný veřejný AR-Cluster uzel (telnet přístupný bez hesla, jen
+s přihlášením callsignem) -- operátor si v ``config.yaml`` může nastavit
+jiný, typicky geograficky bližší cluster; seznam veřejných uzlů viz
+https://www.ng3k.com/Misc/cluster.html.
 """
 
 from __future__ import annotations
@@ -14,7 +23,7 @@ import re
 import time
 
 from station_agent.adapters._common import resolve_hhmm_timestamp
-from station_agent.adapters.base import PendingSpotSource
+from station_agent.adapters.telnet_source import LiveTelnetSpotSource
 from station_agent.models import Spot
 
 # Příklad řádku:
@@ -62,13 +71,23 @@ def parse_spot_line(line: str, now: float | None = None) -> Spot | None:
     )
 
 
-class DXClusterAdapter(PendingSpotSource):
-    name = "dx_cluster"
-    pending_reason = (
-        "Telnet klient na reálný DX cluster server nebyl implementován/ověřen. "
-        "Parser řádků (parse_spot_line) je funkční a otestovaný na fixture datech."
-    )
+DEFAULT_HOST = "dxc.w3lpl.net"
+DEFAULT_PORT = 7373
 
-    def __init__(self, host: str = "", port: int = 7300):
-        self.host = host
-        self.port = port
+
+class DXClusterAdapter(LiveTelnetSpotSource):
+    name = "dx_cluster"
+    DEFAULT_HOST = DEFAULT_HOST
+    DEFAULT_PORT = DEFAULT_PORT
+
+    def __init__(
+        self,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        callsign: str = "",
+        **kwargs,
+    ):
+        super().__init__(host=host, port=port, callsign=callsign, **kwargs)
+
+    def parse_line(self, line: str) -> Spot | None:
+        return parse_spot_line(line)

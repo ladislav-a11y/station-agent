@@ -55,6 +55,51 @@ class ManualTuneAppStateTests(unittest.TestCase):
         self.assertEqual(self.app_state.rig.set_frequency_calls, [])
         self.assertEqual(self.app_state.rig.set_mode_calls, [])
 
+    def test_manual_tune_disables_autotune_and_enables_hold(self):
+        """BUG P5/P4: po ručním NALADIT se AUTO TUNE musí vypnout a HOLD
+        zapnout, bez ohledu na to, v jakém stavu byly předtím."""
+        self.app_state.autotune_engine.cfg.enabled = True
+        self.app_state.autotune_engine.cfg.hold = False
+        candidates = self.app_state.refresh_candidates()
+        target = candidates[0]
+
+        self.app_state.manual_tune(target.callsign, target.freq_hz, target.mode)
+
+        self.assertFalse(self.app_state.autotune_engine.cfg.enabled)
+        self.assertTrue(self.app_state.autotune_engine.cfg.hold)
+        # config.autotune a autotune_engine.cfg musí být tentýž objekt --
+        # jinak by GUI (které čte přes app_state.config) vidělo jiný stav
+        # než AutoTuneEngine, který podle cfg skutečně rozhoduje.
+        self.assertIs(self.app_state.config.autotune, self.app_state.autotune_engine.cfg)
+
+    def test_manual_tune_then_reenabling_autotune_clears_hold_and_works_again(self):
+        """Po ručním NALADIT (AUTO TUNE vypnuté, HOLD zapnuté) musí jít
+        AUTO TUNE later znovu ručně zapnout a musí zase normálně fungovat
+        (mutual exclusivity vynucená v POST /api/autotune -- viz
+        test_web_api.py -- vypne HOLD, jakmile se zapne AUTO TUNE)."""
+        candidates = self.app_state.refresh_candidates()
+        target = candidates[0]
+        self.app_state.manual_tune(target.callsign, target.freq_hz, target.mode)
+        self.assertTrue(self.app_state.autotune_engine.cfg.hold)
+
+        # Simuluje POST /api/autotune {"enabled": true} -- stejná
+        # vzájemná výlučnost, jakou vynucuje web/server.py.
+        self.app_state.autotune_engine.cfg.enabled = True
+        self.app_state.autotune_engine.cfg.hold = False
+
+        decision = self.app_state.run_autotune_cycle()
+        self.assertNotEqual(decision.action, "ERROR")
+
+    def test_manual_tune_does_not_toggle_autotune_when_candidate_rejected(self):
+        self.app_state.refresh_candidates()
+        self.app_state.autotune_engine.cfg.enabled = True
+        self.app_state.autotune_engine.cfg.hold = False
+
+        self.app_state.manual_tune("NOSUCH1", 99_999_999, "SSB")
+
+        self.assertTrue(self.app_state.autotune_engine.cfg.enabled)
+        self.assertFalse(self.app_state.autotune_engine.cfg.hold)
+
     def test_manual_tune_rejects_stale_selection_after_candidate_list_changed(self):
         """Reprodukuje reálný scénář: operátor vybere kandidáta v GUI, mezitím
         se seznam obnoví (spot expiroval / filtr se změnil) a kandidát zmizí
@@ -144,6 +189,24 @@ class ManualTuneApiTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/api/tune")
         self.assertEqual(ctx.exception.code, 404)
+
+    def test_post_tune_response_reports_autotune_disabled_and_hold_enabled(self):
+        """BUG P4/P5 na úrovni API: odpověď /api/tune (kterou GUI použije
+        k synchronizaci checkboxů, viz app.js renderAutotuneState) musí
+        hned reportovat enabled=false/hold=true, ne starý stav."""
+        self._post_json("/api/autotune", {"enabled": True, "hold": False})
+
+        _, candidates_data = self._get("/api/candidates")
+        target = candidates_data["candidates"][0]
+        status, data = self._post_json(
+            "/api/tune",
+            {"callsign": target["callsign"], "freq_hz": target["freq_hz"], "mode": target["mode"]},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertFalse(data["autotune"]["enabled"])
+        self.assertTrue(data["autotune"]["hold"])
+        self.assertIsNotNone(data["autotune"]["hold_remaining_seconds"])
 
 
 if __name__ == "__main__":

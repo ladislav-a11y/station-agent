@@ -23,31 +23,109 @@ from station_agent.scoring import score_candidate
 
 logger = logging.getLogger(__name__)
 
+# Tolerance "přibližné frekvence" při slučování spotů do jednoho kandidáta --
+# různí spottery/skimmery hlásí mírně odlišnou frekvenci téže stanice
+# (zaokrouhlení na klávesnici, drift VFO, přesnost skimmeru). Nad touto
+# hranicí už jde o jinou skutečnou frekvenci/QSO i pro stejný
+# callsign+band+mód (např. stanice se v pásmu přeladila jinam, nebo jde o
+# dvě různé souběžné SSB QSO na stejném pásmu) -- viz DoD "slučovat pouze
+# při shodě ... + přibližné frekvence + časového okna ...". SSB má širší
+# toleranci odpovídající typické šířce hlasového kanálu (~3 kHz), CW/digi
+# užší (spoty na těchto módech se čtou/měří přesněji).
+SSB_FREQ_MERGE_TOLERANCE_HZ = 3_000.0
+DEFAULT_FREQ_MERGE_TOLERANCE_HZ = 700.0
 
-def group_spots_into_candidates(spots: list[Spot]) -> list[Candidate]:
-    """Seskupí spoty stejné stanice+pásma+módu do jednoho Candidate."""
-    groups: dict[tuple[str, str, str], list[Spot]] = defaultdict(list)
+# Časové okno pro sloučení -- dva spoty téhož callsign+band+mód+frekvence
+# dál od sebe v čase, než toto okno, se považují za oddělené pozorování
+# (např. stanice byla spotnutá, zmizela z pásma, a o hodinu později se
+# objevila znovu -- to má být nový kandidát, ne umělé natažení "first_seen"
+# přes celou tu dobu). Nezávislé na ``scoring.spot_max_age_minutes`` (ten
+# omezuje, jak staré spoty se vůbec berou v úvahu vůči "teď"; tohle omezuje
+# rozestup MEZI jednotlivými spoty navzájem).
+DEFAULT_MERGE_TIME_WINDOW_SECONDS = 300.0
+
+
+def _freq_tolerance_for_mode(mode: str) -> float:
+    return SSB_FREQ_MERGE_TOLERANCE_HZ if mode == "SSB" else DEFAULT_FREQ_MERGE_TOLERANCE_HZ
+
+
+def _cluster_by_freq_and_time(
+    spots: list[Spot], freq_tolerance_hz: float, time_window_seconds: float
+) -> list[list[Spot]]:
+    """Rozdělí spoty (už předfiltrované na stejný callsign+band+kompatibilní
+    mód) do shluků podle přibližné frekvence A časového okna zároveň.
+
+    Použije union-find nad dvojicemi spotů, které jsou si navzájem blízké
+    v obou rozměrech -- díky tomu vznikne shluk i řetězením přes víc spotů
+    (A blízko B blízko C, i když A a C už by samy o sobě mimo toleranci
+    byly), což lépe odpovídá reálnému postupnému driftu/zaokrouhlování než
+    porovnání proti jedinému pevnému kotevnímu bodu."""
+    n = len(spots)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if (
+                abs(spots[i].freq_hz - spots[j].freq_hz) <= freq_tolerance_hz
+                and abs(spots[i].timestamp - spots[j].timestamp) <= time_window_seconds
+            ):
+                union(i, j)
+
+    clusters: dict[int, list[Spot]] = defaultdict(list)
+    for i, spot in enumerate(spots):
+        clusters[find(i)].append(spot)
+    return list(clusters.values())
+
+
+def group_spots_into_candidates(
+    spots: list[Spot],
+    *,
+    time_window_seconds: float = DEFAULT_MERGE_TIME_WINDOW_SECONDS,
+) -> list[Candidate]:
+    """Seskupí spoty do kandidátů.
+
+    Sloučení do jednoho kandidáta vyžaduje shodu callsign + band +
+    kompatibilní (normalizovaný, viz models.Spot.__post_init__) mód +
+    přibližnou frekvenci + časové okno (viz ``_cluster_by_freq_and_time``).
+    Zdroj, který daný mód strukturálně nevidí (např. PSKReporter u SSB),
+    prostě není mezi ``confirming_sources`` -- to není důvod k nesloučení
+    ani k penalizaci, víc zdrojů je jen bonus (viz scoring.py
+    ``_sources_reason``)."""
+    coarse: dict[tuple[str, str, str], list[Spot]] = defaultdict(list)
     for spot in spots:
-        groups[(spot.callsign, spot.band, spot.mode)].append(spot)
+        coarse[(spot.callsign, spot.band, spot.mode)].append(spot)
 
     candidates = []
-    for (callsign, band, mode), group in groups.items():
-        group.sort(key=lambda s: s.timestamp)
-        latest = group[-1]
-        snr_values = [s.snr_db for s in group if s.snr_db is not None]
-        candidates.append(
-            Candidate(
-                callsign=callsign,
-                freq_hz=latest.freq_hz,
-                mode=mode,
-                band=band,
-                first_seen=group[0].timestamp,
-                last_seen=latest.timestamp,
-                confirming_sources={s.source for s in group},
-                best_snr_db=max(snr_values) if snr_values else None,
-                comments=[s.comment for s in group if s.comment],
+    for (callsign, band, mode), group in coarse.items():
+        freq_tolerance_hz = _freq_tolerance_for_mode(mode)
+        for cluster in _cluster_by_freq_and_time(group, freq_tolerance_hz, time_window_seconds):
+            cluster.sort(key=lambda s: s.timestamp)
+            latest = cluster[-1]
+            snr_values = [s.snr_db for s in cluster if s.snr_db is not None]
+            candidates.append(
+                Candidate(
+                    callsign=callsign,
+                    freq_hz=latest.freq_hz,
+                    mode=mode,
+                    band=band,
+                    first_seen=cluster[0].timestamp,
+                    last_seen=latest.timestamp,
+                    confirming_sources={s.source for s in cluster},
+                    best_snr_db=max(snr_values) if snr_values else None,
+                    comments=[s.comment for s in cluster if s.comment],
+                )
             )
-        )
     return candidates
 
 
@@ -123,6 +201,15 @@ class Aggregator:
     def source_status(self, now: float | None = None) -> list[dict]:
         now = time.time() if now is None else now
         return [poller.status_dict(now) for poller in self.pollers]
+
+    def close(self) -> None:
+        """Zastaví vlákna živých streamovacích zdrojů (DX Cluster, RBN) --
+        volá se při vypnutí aplikace. Zdroje bez ``close()`` (HTTP-based
+        PSKReporter, mock) se prostě přeskočí."""
+        for poller in self.pollers:
+            close = getattr(poller.source, "close", None)
+            if callable(close):
+                close()
 
     def build_candidates(
         self,

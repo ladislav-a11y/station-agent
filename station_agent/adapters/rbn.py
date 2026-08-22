@@ -2,8 +2,14 @@
 
 Stejně jako u DX Clusteru (viz dx_cluster.py) je parsování řádku plně
 implementované a testované na fixture datech. Živé telnet spojení na
-telnet.reversebeacon.net NENÍ implementováno (PENDING) -- viz README.md
-"Stav externích zdrojů" a AGENTS.md pravidlo 6.
+oficiální agregovaný telnet server RBN (``telnet.reversebeacon.net:7000``,
+viz https://www.reversebeacon.net/pages/telnet) používá stejný sdílený
+generický klient ``LiveTelnetSpotSource`` jako DX Cluster -- skutečný TCP
+socket, login callsignem, čtení řádků a vlastní reconnect/backoff nezávislý
+na ostatních zdrojích. ``fetch()`` vyhazuje ``SourceNotReadyError`` (GUI
+stav "pending"), dokud adaptér poprvé skutečně nenaváže spojení a
+nenaparsuje aspoň jeden reálný spot -- viz README.md "Stav externích
+zdrojů" a AGENTS.md pravidlo 6.
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ import re
 import time
 
 from station_agent.adapters._common import resolve_hhmm_timestamp
-from station_agent.adapters.base import PendingSpotSource
+from station_agent.adapters.telnet_source import LiveTelnetSpotSource
 from station_agent.models import Spot
 
 # Příklad řádku RBN skimmeru:
@@ -47,13 +53,23 @@ def parse_rbn_line(line: str, now: float | None = None) -> Spot | None:
     )
 
 
-class RBNAdapter(PendingSpotSource):
-    name = "rbn"
-    pending_reason = (
-        "Telnet klient na telnet.reversebeacon.net nebyl implementován/ověřen. "
-        "Parser řádků (parse_rbn_line) je funkční a otestovaný na fixture datech."
-    )
+DEFAULT_HOST = "telnet.reversebeacon.net"
+DEFAULT_PORT = 7000
 
-    def __init__(self, host: str = "", port: int = 7000):
-        self.host = host
-        self.port = port
+
+class RBNAdapter(LiveTelnetSpotSource):
+    name = "rbn"
+    DEFAULT_HOST = DEFAULT_HOST
+    DEFAULT_PORT = DEFAULT_PORT
+
+    def __init__(
+        self,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        callsign: str = "",
+        **kwargs,
+    ):
+        super().__init__(host=host, port=port, callsign=callsign, **kwargs)
+
+    def parse_line(self, line: str) -> Spot | None:
+        return parse_rbn_line(line)

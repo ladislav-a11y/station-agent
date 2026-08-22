@@ -34,6 +34,21 @@ class RateLimitedError(Exception):
         self.retry_after_seconds = retry_after_seconds
 
 
+class SourceNotReadyError(Exception):
+    """Živý zdroj (viz ``adapters/telnet_source.py``) je implementovaný a
+    aktivně se pokouší o spojení, ale ještě nikdy se mu nepodařilo navázat
+    spojení a naparsovat aspoň jeden reálný spot.
+
+    Na rozdíl od ``NotImplementedError`` (viz ``PendingSpotSource`` níže),
+    které znamená "tento adaptér vůbec nemá živou implementaci", tato
+    výjimka znamená "implementace je živá, jen zatím čekáme na první
+    úspěšné spojení/data" -- ``PolledSource`` (``adapters/polling.py``) ji
+    mapuje na stejný GUI stav ``pending``, dokud nedorazí první reálná
+    data, po kterých už zdroj hlásí ``ok``/``error`` podle aktuálního
+    stavu spojení.
+    """
+
+
 class PendingSpotSource(SpotSource):
     """Základ pro adaptéry na živé externí služby, které zatím nebyly
     ověřeny proti reálnému serveru (viz README "Stav externích zdrojů").

@@ -67,13 +67,21 @@ sources:
   mock:
     enabled: true
   dx_cluster:
-    # PENDING adaptér -- parser řádků je implementovaný a otestovaný,
-    # živé telnet spojení zatím není ověřené proti reálnému clusteru.
+    # Živě funkční adaptér (telnet: TCP spojení, login callsignem, čtení a
+    # parsování řádků) -- viz README "Stav externích zdrojů". GUI hlásí
+    # "pending", dokud se poprvé skutečně nepřipojí a nenaparsuje reálný
+    # spot; teprve pak "ok"/"error" podle aktuálního stavu spojení.
+    # I tak je defaultně vypnutý: live zdroje vyžadují explicitní volbu
+    # uživatele (viz AGENTS.md pravidlo 4). Vyber si geograficky bližší
+    # veřejný cluster, pokud chceš nižší latenci spotů.
     enabled: false
-    host: "dxc.example.net"
-    port: 7300
+    host: "dxc.w3lpl.net"
+    port: 7373
+    # Volitelně jiný callsign pro přihlášení než station.callsign výše.
+    # callsign: "OK1EXAMPLE"
   rbn:
-    # PENDING adaptér -- viz README "Stav externích zdrojů".
+    # Živě funkční adaptér (telnet.reversebeacon.net) -- stejný princip
+    # jako dx_cluster výše, viz README "Stav externích zdrojů".
     enabled: false
     host: "telnet.reversebeacon.net"
     port: 7000

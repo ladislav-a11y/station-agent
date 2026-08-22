@@ -194,19 +194,22 @@ bezpečnostní invarianty, které se nesmí porušit).
 | Adaptér | Parsování / logika | Živé připojení |
 |---|---|---|
 | Mock (offline testovací data) | ✅ funkční | — |
-| DX Cluster (telnet) | ✅ parser řádků otestovaný na fixture datech | ⏳ **pending** — `fetch()` vyhazuje `NotImplementedError`, telnet klient nebyl ověřen proti reálnému clusteru |
-| Reverse Beacon Network | ✅ parser řádků otestovaný na fixture datech | ⏳ **pending** — stejně jako výše |
+| DX Cluster (telnet) | ✅ parser řádků otestovaný na fixture datech | ✅ **živě funkční** — `LiveTelnetSpotSource` (`station_agent/adapters/telnet_source.py`) otevře reálný TCP socket, přihlásí se callsignem a streamuje/parsuje řádky s vlastním reconnect/backoffem; `fetch()` hlásí `SourceNotReadyError` (GUI stav "pending"), dokud poprvé skutečně nedorazí reálný spot |
+| Reverse Beacon Network | ✅ parser řádků otestovaný na fixture datech | ✅ **živě funkční** — stejný `LiveTelnetSpotSource` klient jako DX Cluster výše, mířený na `telnet.reversebeacon.net:7000` |
 | PSKReporter | ✅ parser XML reportu otestovaný na fixture datech | ✅ **živě funkční** — `fetch()` reálně provádí HTTP GET na `query_url` (výchozí `retrieve.pskreporter.info/query`) a parsuje odpověď; síťová vrstva je otestovaná proti skutečnému lokálnímu HTTP serveru v `tests/test_adapters_live.py` |
 | Log4OM2 UDP prefill | ✅ sestavení payloadu otestované | ⏳ **pending verifikace** — odeslání UDP paketu je implementované, ale nebylo ověřeno proti běžící instanci Log4OM2 |
 
-DX Cluster a RBN jsou pending, protože vyžadují udržované telnet spojení
-na proudový server, které nejde bezpečně ověřit bez reálné sítě v rámci
-vývoje/CI -- jejich `fetch()`/`fetch_live()` metody explicitně vyhazují
-`NotImplementedError` s vysvětlením, nikdy nevrací vymyšlená/nafingovaná
-data tvářící se jako reálná odpověď. PSKReporter je jednoduché HTTP GET/XML
-API, takže má plnou implementaci klienta (`station_agent/adapters/pskreporter.py`);
-v konfiguraci je i tak defaultně `enabled: false` -- live zdroje jsou vždy
-explicitní volba uživatele (viz AGENTS.md pravidlo 4).
+DX Cluster a RBN běží na sdíleném telnet klientovi (`station_agent/adapters/telnet_source.py`):
+vlastní daemon vlákno na zdroj, skutečný TCP socket, login callsignem
+(`station.callsign` z configu, nebo přepsatelné přes `sources.<zdroj>.callsign`),
+čtení řádek po řádku a nezávislý reconnect s exponenciálním backoffem --
+výpadek jednoho zdroje neovlivní ostatní. Dokud adaptér poprvé skutečně
+nenaváže spojení a nenaparsuje aspoň jeden reálný spot, `fetch()` hlásí
+`SourceNotReadyError` (GUI stav "pending"); pak už hlásí "ok"/"error" podle
+aktuálního stavu spojení, nikdy zpátky "pending". Žádný adaptér nevrací
+vymyšlená/nafingovaná data tvářící se jako reálná odpověď (viz AGENTS.md
+pravidlo 6). V konfiguraci jsou i tak všechny živé zdroje defaultně
+`enabled: false` -- vždy explicitní volba uživatele (viz AGENTS.md pravidlo 4).
 
 Frekvence GUI refreshe (viz `web/static/app.js`, každých 5 s) je záměrně
 oddělená od frekvence reálných dotazů na živé zdroje jako PSKReporter --

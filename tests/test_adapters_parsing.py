@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
+from station_agent.adapters.base import SourceNotReadyError
 from station_agent.adapters.dx_cluster import DXClusterAdapter, parse_spot_line
 from station_agent.adapters.pskreporter import PSKReporterAdapter, parse_pskreporter_report
 from station_agent.adapters.rbn import RBNAdapter, parse_rbn_line
@@ -37,9 +38,13 @@ class DXClusterParsingTests(unittest.TestCase):
         spot_dt = datetime.fromtimestamp(spot.timestamp, tz=timezone.utc)
         self.assertEqual(spot_dt.date(), datetime(2024, 1, 1, tzinfo=timezone.utc).date())
 
-    def test_pending_adapter_raises_not_implemented(self):
-        adapter = DXClusterAdapter(host="dxc.example.net", port=7300)
-        with self.assertRaises(NotImplementedError):
+    def test_fetch_without_callsign_raises_source_not_ready(self):
+        # Živý telnet klient (viz tests/test_telnet_source.py pro reálný
+        # socket round-trip) potřebuje station.callsign pro přihlášení --
+        # bez něj se ani nepokusí navázat spojení a fetch() rovnou vyhodí
+        # SourceNotReadyError (GUI stav "pending").
+        adapter = DXClusterAdapter(host="dxc.example.net", port=7300, callsign="")
+        with self.assertRaises(SourceNotReadyError):
             adapter.fetch()
 
 
@@ -57,9 +62,9 @@ class RBNParsingTests(unittest.TestCase):
     def test_invalid_line_returns_none(self):
         self.assertIsNone(parse_rbn_line("garbage", now=FIXED_NOW))
 
-    def test_pending_adapter_raises_not_implemented(self):
-        adapter = RBNAdapter(host="telnet.reversebeacon.net", port=7000)
-        with self.assertRaises(NotImplementedError):
+    def test_fetch_without_callsign_raises_source_not_ready(self):
+        adapter = RBNAdapter(host="telnet.reversebeacon.net", port=7000, callsign="")
+        with self.assertRaises(SourceNotReadyError):
             adapter.fetch()
 
 
@@ -90,9 +95,11 @@ class PSKReporterParsingTests(unittest.TestCase):
         self.assertTrue(all(s.callsign != "INCOMPLETE" for s in spots))
 
     def test_adapter_defaults_to_real_pskreporter_endpoint(self):
-        # PSKReporterAdapter je živě funkční (viz tests/test_adapters_live.py
-        # pro reálný síťový round-trip) -- na rozdíl od DXClusterAdapter a
-        # RBNAdapter tedy fetch() nevyhazuje NotImplementedError.
+        # PSKReporterAdapter je jednoduché synchronní HTTP GET -- fetch()
+        # rovnou provede reálný požadavek (viz tests/test_adapters_live.py).
+        # DXClusterAdapter/RBNAdapter naproti tomu běží na vlastním vlákně
+        # (viz tests/test_telnet_source.py) a než přijdou první reálná
+        # data, fetch() hlásí SourceNotReadyError (GUI stav "pending").
         adapter = PSKReporterAdapter()
         self.assertEqual(adapter.query_url, "https://retrieve.pskreporter.info/query")
 

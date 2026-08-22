@@ -19,9 +19,10 @@ station_agent/
 ├── adapters/
 │   ├── base.py                # SpotSource ABC
 │   ├── mock.py                  # offline testovací zdroj (plně funkční)
-│   ├── dx_cluster.py             # parser řádků (funkční) + fetch() PENDING
-│   ├── rbn.py                     # parser řádků (funkční) + fetch() PENDING
-│   └── pskreporter.py              # parser XML (funkční) + fetch_live() PENDING
+│   ├── telnet_source.py            # sdílený živý telnet klient pro DX Cluster/RBN
+│   ├── dx_cluster.py             # parser řádků + živý telnet fetch() (funkční)
+│   ├── rbn.py                     # parser řádků + živý telnet fetch() (funkční)
+│   └── pskreporter.py              # parser XML + živý HTTP fetch() (funkční)
 ├── rig/
 │   ├── base.py                     # RigControl ABC (BEZ jakékoli PTT metody)
 │   ├── mock_rig.py                   # in-memory mock rig
@@ -70,12 +71,16 @@ nikdy nezapisuje do deníku sama.
 U DX Clusteru, RBN a PSKReporteru je **parsování formátu** čistá funkce
 (text/XML dovnitř, `Spot` ven) — tu lze plně otestovat na fixture datech
 bez internetu, a je proto plně implementovaná a testovaná. **Získání dat
-z živé služby** (telnet spojení, HTTP dotaz) ale nejde ověřit bez skutečné
-sítě a reálného externího serveru, takže tyto metody (`fetch`/`fetch_live`)
-jsou implementované jako jasně označený pending stub, který vyhazuje
-`NotImplementedError` s popisem, co chybí k dokončení. Tím se předchází
-tomu, aby si aplikace "vymýšlela" data, která vypadají jako reálná odpověď
-externí služby.
+z živé služby** (telnet spojení, HTTP dotaz) je taky plně implementované
+a živé (`fetch()` u všech tří adaptérů skutečně mluví po síti -- viz
+`telnet_source.py` pro DX Cluster/RBN a `pskreporter.py` pro HTTP), ale
+testuje se výhradně proti skutečnému lokálnímu testovacímu socketu/HTTP
+serveru (`tests/test_telnet_source.py`, `tests/test_adapters_live.py`),
+nikdy proti reálnému vzdálenému serveru -- viz AGENTS.md "Testy běží bez
+internetu". Dokud se DX Cluster/RBN adaptér poprvé skutečně nepřipojí a
+nenaparsuje aspoň jeden reálný spot, `fetch()` hlásí `SourceNotReadyError`
+(GUI stav "pending") místo toho, aby si "vymýšlel" data, která vypadají
+jako reálná odpověď externí služby (viz AGENTS.md pravidlo 6).
 
 ## Rozšiřování o nový zdroj spotů
 

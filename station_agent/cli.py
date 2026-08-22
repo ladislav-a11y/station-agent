@@ -27,11 +27,21 @@ def build_sources(config: AppConfig) -> list:
     dxc = config.sources.get("dx_cluster")
     if dxc and dxc.enabled:
         sources.append(
-            DXClusterAdapter(host=dxc.options.get("host", ""), port=int(dxc.options.get("port", 7300)))
+            DXClusterAdapter(
+                host=dxc.options.get("host", DXClusterAdapter.DEFAULT_HOST),
+                port=int(dxc.options.get("port", DXClusterAdapter.DEFAULT_PORT)),
+                callsign=dxc.options.get("callsign", config.station.callsign),
+            )
         )
     rbn = config.sources.get("rbn")
     if rbn and rbn.enabled:
-        sources.append(RBNAdapter(host=rbn.options.get("host", ""), port=int(rbn.options.get("port", 7000))))
+        sources.append(
+            RBNAdapter(
+                host=rbn.options.get("host", RBNAdapter.DEFAULT_HOST),
+                port=int(rbn.options.get("port", RBNAdapter.DEFAULT_PORT)),
+                callsign=rbn.options.get("callsign", config.station.callsign),
+            )
+        )
     pskr = config.sources.get("pskreporter")
     if pskr and pskr.enabled:
         options = dict(pskr.options)
@@ -97,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         loop.stop()
         server.shutdown()
+        app_state.aggregator.close()
         app_state.db.close()
         app_state.rig.close()
     return 0

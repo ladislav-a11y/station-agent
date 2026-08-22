@@ -220,11 +220,42 @@ function renderDecision(status) {
 }
 
 function fillAutotuneForm(status) {
-  document.getElementById("at-enabled").checked = status.autotune.enabled;
-  document.getElementById("at-hold").checked = status.autotune.hold;
   document.getElementById("at-min-score").value = status.min_score;
   document.getElementById("at-min-hold").value = status.autotune.min_hold_seconds;
   document.getElementById("at-min-delta").value = status.autotune.min_score_delta;
+}
+
+// AUTO TUNE a HOLD jsou vzájemně výlučné (backend to vynucuje taky, viz
+// POST /api/autotune) -- checkboxy i odpočet HOLD se synchronizují se
+// stavem backendu při každém refreshi statusu i hned po NALADIT/uložení
+// formuláře, aby GUI nikdy neukazovalo stav, který neodpovídá backendu
+// (viz BUG P4/P5 -- ruční NALADIT vypíná AUTO TUNE a zapíná HOLD).
+let holdCountdownBase = null; // {remainingSeconds, capturedAtMs}
+
+function renderAutotuneState(status) {
+  document.getElementById("at-enabled").checked = status.autotune.enabled;
+  document.getElementById("at-hold").checked = status.autotune.hold;
+  if (status.autotune.hold && status.autotune.hold_remaining_seconds != null) {
+    holdCountdownBase = { remainingSeconds: status.autotune.hold_remaining_seconds, capturedAtMs: Date.now() };
+  } else {
+    holdCountdownBase = null;
+  }
+  renderHoldCountdown();
+}
+
+function renderHoldCountdown() {
+  const el = document.getElementById("at-hold-countdown");
+  if (!document.getElementById("at-hold").checked) {
+    el.textContent = "";
+    return;
+  }
+  if (!holdCountdownBase) {
+    el.textContent = "HOLD aktivní";
+    return;
+  }
+  const elapsedSeconds = (Date.now() - holdCountdownBase.capturedAtMs) / 1000;
+  const remaining = Math.max(0, holdCountdownBase.remainingSeconds - elapsedSeconds);
+  el.textContent = `HOLD aktivní -- zbývá ${fmtAge(remaining)}`;
 }
 
 let statusLoaded = false;
@@ -236,6 +267,7 @@ async function refreshStatus() {
     renderRigStatus(status);
     renderSourcesStatus(status);
     renderDecision(status);
+    renderAutotuneState(status);
     if (!statusLoaded) {
       state.modes = new Set(status.modes);
       state.bands = new Set(status.bands);
@@ -272,6 +304,7 @@ document.getElementById("tune-button").addEventListener("click", async () => {
     const status = await res.json();
     renderRigStatus(status);
     renderDecision(status);
+    renderAutotuneState(status);
     const reason = status.last_decision ? status.last_decision.reason : status.error;
     renderTuneResult(reason || (res.ok ? "Naladěno." : "Naladění selhalo."), !res.ok);
   } catch (err) {
@@ -299,9 +332,23 @@ document.getElementById("autotune-form").addEventListener("submit", async (ev) =
   const status = await res.json();
   renderRigStatus(status);
   renderDecision(status);
+  renderAutotuneState(status);
+});
+
+// Klient navíc vynucuje výlučnost hned při klikání (backend viz
+// web/server.py POST /api/autotune je vynucuje taky, defense-in-depth) --
+// zaškrtnutí jednoho přepínače hned v prohlížeči odškrtne ten druhý, ať
+// operátor nikdy neodešle formulář s oběma zapnutými.
+document.getElementById("at-enabled").addEventListener("change", (ev) => {
+  if (ev.target.checked) document.getElementById("at-hold").checked = false;
+});
+document.getElementById("at-hold").addEventListener("change", (ev) => {
+  if (ev.target.checked) document.getElementById("at-enabled").checked = false;
+  renderHoldCountdown();
 });
 
 refreshStatus();
 refreshCandidates();
 setInterval(refreshStatus, 5000);
 setInterval(refreshCandidates, 5000);
+setInterval(renderHoldCountdown, 1000);

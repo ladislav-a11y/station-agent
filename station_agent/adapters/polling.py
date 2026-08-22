@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import time
 
-from station_agent.adapters.base import RateLimitedError, SpotSource
+from station_agent.adapters.base import RateLimitedError, SourceNotReadyError, SpotSource
 from station_agent.models import Spot
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class PolledSource:
         self.last_attempt_ts = now
         try:
             spots = self.source.fetch()
-        except NotImplementedError as exc:
+        except (NotImplementedError, SourceNotReadyError) as exc:
             self.status = "pending"
             self.last_error = str(exc)
             return self.cached_spots, []

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -46,6 +47,18 @@ def _is_benign_disconnect(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and getattr(exc, "winerror", None) in _BENIGN_DISCONNECT_WINERRORS
 
 
+def _hold_remaining_seconds(app_state: AppState) -> float | None:
+    """Odpočet HOLD pro GUI: kolik sekund ještě zbývá z ``min_hold_seconds``
+    od posledního naladění (ruční NALADIT i AUTO TUNE nastavují stejný
+    ``current_rig_state.tuned_at``). Vrátí ``None``, když HOLD není aktivní
+    nebo rig ještě nebyl na nic naladěn -- GUI pak žádný odpočet nezobrazí."""
+    cfg = app_state.config.autotune
+    state = app_state.current_rig_state
+    if not cfg.hold or state is None:
+        return None
+    return round(max(0.0, cfg.min_hold_seconds - (time.time() - state.tuned_at)), 1)
+
+
 def _build_status(app_state: AppState) -> dict:
     cfg = app_state.config
     with app_state.lock:
@@ -54,6 +67,7 @@ def _build_status(app_state: AppState) -> dict:
             "autotune": {
                 "enabled": cfg.autotune.enabled,
                 "hold": cfg.autotune.hold,
+                "hold_remaining_seconds": _hold_remaining_seconds(app_state),
                 "min_hold_seconds": cfg.autotune.min_hold_seconds,
                 "min_score_delta": cfg.autotune.min_score_delta,
             },
@@ -198,10 +212,20 @@ def _make_handler(app_state: AppState):
             if path == "/api/autotune":
                 with app_state.lock:
                     cfg = app_state.autotune_engine.cfg
+                    # AUTO TUNE a HOLD jsou vzájemně výlučné (viz DoD) --
+                    # zapnutí jednoho vždy vypne druhý, ať přijdou v payloadu
+                    # v libovolném pořadí/kombinaci. Zpracujeme "enabled"
+                    # nejdřív, aby explicitní "hold": true v témže payloadu
+                    # (typicky odeslaném z GUI formuláře) mělo poslední
+                    # slovo, pokud by GUI omylem poslalo obě jako true.
                     if "enabled" in payload:
                         cfg.enabled = bool(payload["enabled"])
+                        if cfg.enabled:
+                            cfg.hold = False
                     if "hold" in payload:
                         cfg.hold = bool(payload["hold"])
+                        if cfg.hold:
+                            cfg.enabled = False
                     if "min_hold_seconds" in payload:
                         cfg.min_hold_seconds = float(payload["min_hold_seconds"])
                     if "min_score_delta" in payload:

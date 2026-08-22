@@ -127,6 +127,34 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(refreshed["autotune"]["min_hold_seconds"], 30)
         self.assertEqual(refreshed["autotune"]["min_score_delta"], 3)
 
+    def test_post_autotune_enabled_true_forces_hold_off(self):
+        """AUTO TUNE a HOLD jsou vzájemně výlučné -- zapnutí AUTO TUNE musí
+        vždy vypnout HOLD, i kdyby HOLD byl předtím zapnutý."""
+        self._post_json("/api/autotune", {"enabled": False, "hold": True})
+        status, data = self._post_json("/api/autotune", {"enabled": True})
+        self.assertEqual(status, 200)
+        self.assertTrue(data["autotune"]["enabled"])
+        self.assertFalse(data["autotune"]["hold"])
+
+    def test_post_autotune_hold_true_forces_enabled_off(self):
+        self._post_json("/api/autotune", {"enabled": True, "hold": False})
+        status, data = self._post_json("/api/autotune", {"hold": True})
+        self.assertEqual(status, 200)
+        self.assertFalse(data["autotune"]["enabled"])
+        self.assertTrue(data["autotune"]["hold"])
+
+    def test_post_autotune_both_true_in_same_payload_hold_wins(self):
+        status, data = self._post_json("/api/autotune", {"enabled": True, "hold": True})
+        self.assertEqual(status, 200)
+        self.assertFalse(data["autotune"]["enabled"])
+        self.assertTrue(data["autotune"]["hold"])
+
+    def test_status_hold_remaining_seconds_none_when_hold_inactive(self):
+        self._post_json("/api/autotune", {"enabled": True, "hold": False})
+        _, _, body = self._get("/api/status")
+        data = json.loads(body)
+        self.assertIsNone(data["autotune"]["hold_remaining_seconds"])
+
     def test_unknown_path_is_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self._get("/does-not-exist")

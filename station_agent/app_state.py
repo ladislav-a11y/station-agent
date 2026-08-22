@@ -110,6 +110,13 @@ class AppState:
                 raise
             if new_state is not None:
                 self.current_rig_state = new_state
+                # BUG P5/P4: ruční NALADIT musí AUTO TUNE vypnout (jinak by ho
+                # mohl hned zase přeladit pryč) a HOLD zapnout (chrání čerstvě
+                # naladěnou stanici po min_hold_seconds -- viz odpočet
+                # v /api/status a AutoTuneEngine.cfg.hold). enabled/hold jsou
+                # vzájemně výlučné, viz web/server.py POST /api/autotune.
+                self.autotune_engine.cfg.enabled = False
+                self.autotune_engine.cfg.hold = True
             self.last_decision = decision
             return decision
 
