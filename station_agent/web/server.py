@@ -116,7 +116,7 @@ def _make_handler(app_state: AppState):
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path not in ("/api/autotune", "/api/filters"):
+            if path not in ("/api/autotune", "/api/filters", "/api/tune"):
                 self.send_error(404)
                 return
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -125,6 +125,36 @@ def _make_handler(app_state: AppState):
                 payload = json.loads(raw or b"{}")
             except json.JSONDecodeError:
                 self._send_json({"error": "invalid JSON"}, status=400)
+                return
+
+            if path == "/api/tune":
+                callsign = payload.get("callsign")
+                freq_hz = payload.get("freq_hz")
+                mode = payload.get("mode")
+                valid = (
+                    isinstance(callsign, str)
+                    and callsign.strip() != ""
+                    and isinstance(freq_hz, (int, float))
+                    and not isinstance(freq_hz, bool)
+                    and freq_hz > 0
+                    and isinstance(mode, str)
+                    and mode.strip() != ""
+                )
+                if not valid:
+                    self._send_json(
+                        {"error": "callsign, freq_hz a mode jsou povinné a musí popisovat platného kandidáta"},
+                        status=400,
+                    )
+                    return
+                try:
+                    app_state.manual_tune(callsign, int(freq_hz), mode)
+                except Exception as exc:  # rigctld/hardware chyba
+                    logger.exception("Ruční naladění (NALADIT) selhalo")
+                    body = _build_status(app_state)
+                    body["error"] = str(exc)
+                    self._send_json(body, status=502)
+                    return
+                self._send_json(_build_status(app_state))
                 return
 
             if path == "/api/autotune":

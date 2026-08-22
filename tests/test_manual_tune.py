@@ -1,0 +1,150 @@
+"""Regresní testy ručního naladění (tlačítko NALADIT v GUI).
+
+Pokrývá jak AppState.manual_tune() v mock režimu (bez HTTP), tak
+POST /api/tune na úrovni backend/API -- viz dod-station-agent-v1.md a
+požadavek na praktické ovládání Station Agent v1."""
+
+from __future__ import annotations
+
+import json
+import threading
+import unittest
+import urllib.error
+import urllib.request
+
+from station_agent.web.server import create_server
+from tests.test_web_api import build_test_app_state
+
+
+class ManualTuneAppStateTests(unittest.TestCase):
+    """Mock-mode regrese na úrovni AppState (bez HTTP serveru)."""
+
+    def setUp(self):
+        self.app_state = build_test_app_state()
+
+    def tearDown(self):
+        self.app_state.db.close()
+
+    def test_manual_tune_valid_candidate_sets_rig_and_state(self):
+        candidates = self.app_state.refresh_candidates()
+        target = candidates[0]
+
+        decision = self.app_state.manual_tune(target.callsign, target.freq_hz, target.mode)
+
+        self.assertEqual(decision.action, "TUNE")
+        self.assertEqual(decision.candidate.callsign, target.callsign)
+        self.assertEqual(self.app_state.rig.get_frequency(), target.freq_hz)
+        self.assertEqual(self.app_state.rig.get_mode(), target.mode)
+        self.assertIsNotNone(self.app_state.current_rig_state)
+        self.assertEqual(self.app_state.current_rig_state.callsign, target.callsign)
+        self.assertIs(self.app_state.last_decision, decision)
+        self.assertIn("NALADIT", decision.reason)
+
+        history = self.app_state.db.autotune_history()
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0]["callsign"], target.callsign)
+
+    def test_manual_tune_rejects_candidate_not_in_current_list(self):
+        self.app_state.refresh_candidates()
+
+        decision = self.app_state.manual_tune("NOSUCH1", 99_999_999, "SSB")
+
+        self.assertEqual(decision.action, "NONE")
+        self.assertIsNone(decision.candidate)
+        self.assertIsNone(self.app_state.current_rig_state)
+        self.assertEqual(self.app_state.rig.set_frequency_calls, [])
+        self.assertEqual(self.app_state.rig.set_mode_calls, [])
+
+    def test_manual_tune_rejects_stale_selection_after_candidate_list_changed(self):
+        """Reprodukuje reálný scénář: operátor vybere kandidáta v GUI, mezitím
+        se seznam obnoví (spot expiroval / filtr se změnil) a kandidát zmizí
+        -- NALADIT nesmí přeladit na neexistujícího kandidáta jen podle
+        čísel zapamatovaných v prohlížeči."""
+        candidates = self.app_state.refresh_candidates()
+        target = candidates[0]
+        self.app_state.latest_candidates = [c for c in candidates if c.callsign != target.callsign]
+
+        decision = self.app_state.manual_tune(target.callsign, target.freq_hz, target.mode)
+
+        self.assertEqual(decision.action, "NONE")
+        self.assertEqual(self.app_state.rig.set_frequency_calls, [])
+
+
+class ManualTuneApiTests(unittest.TestCase):
+    """Backend/API regrese pro POST /api/tune."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app_state = build_test_app_state()
+        cls.server = create_server(cls.app_state)
+        cls.base_url = f"http://127.0.0.1:{cls.server.server_address[1]}"
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.thread.join(timeout=5)
+        cls.server.server_close()
+        cls.app_state.db.close()
+
+    def _get(self, path: str):
+        with urllib.request.urlopen(f"{self.base_url}{path}", timeout=5) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def _post_json(self, path: str, payload: dict):
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}{path}", data=data, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read())
+
+    def test_post_tune_valid_candidate_tunes_rig_and_reports_status(self):
+        _, candidates_data = self._get("/api/candidates")
+        target = candidates_data["candidates"][0]
+
+        status, data = self._post_json(
+            "/api/tune",
+            {"callsign": target["callsign"], "freq_hz": target["freq_hz"], "mode": target["mode"]},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["rig"]["callsign"], target["callsign"])
+        self.assertEqual(data["rig"]["freq_hz"], target["freq_hz"])
+        self.assertEqual(data["rig"]["mode"], target["mode"])
+        self.assertEqual(data["last_decision"]["action"], "TUNE")
+        self.assertEqual(data["last_decision"]["candidate_callsign"], target["callsign"])
+
+    def test_post_tune_missing_fields_returns_400(self):
+        status, data = self._post_json("/api/tune", {"callsign": "OK1ABC"})
+        self.assertEqual(status, 400)
+        self.assertIn("error", data)
+
+    def test_post_tune_empty_payload_returns_400(self):
+        status, data = self._post_json("/api/tune", {})
+        self.assertEqual(status, 400)
+        self.assertIn("error", data)
+
+    def test_post_tune_unknown_candidate_returns_none_without_moving_rig(self):
+        _, status_before = self._get("/api/status")
+
+        status, data = self._post_json(
+            "/api/tune", {"callsign": "NOSUCH1", "freq_hz": 1_234_000, "mode": "SSB"}
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["last_decision"]["action"], "NONE")
+        self.assertEqual(data["rig"], status_before["rig"])
+
+    def test_get_tune_endpoint_not_allowed(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self._get("/api/tune")
+        self.assertEqual(ctx.exception.code, 404)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -65,6 +65,54 @@ class AppState:
             self.last_decision = decision
             return decision
 
+    def manual_tune(self, callsign: str, freq_hz: int, mode: str) -> TuneDecision:
+        """Ruční naladění vybraného kandidáta (tlačítko NALADIT v GUI).
+
+        Kandidát musí přesně odpovídat (callsign, freq_hz, mode) položce
+        aktuálně v ``latest_candidates`` -- to zajišťuje, že se nikdy
+        nenaladí na kandidáta, který mezitím zmizel ze seznamu (např. kvůli
+        expiraci spotu nebo změně filtrů), i kdyby GUI poslalo zastaralý
+        výběr. Volá stejnou ``apply_decision`` cestu jako AUTO TUNE, takže
+        prochází přes stejný jediný Hamlib/rigctld klient (viz AGENTS.md
+        pravidlo 1) a zapisuje se do stejné historie v DB.
+        """
+        with self.lock:
+            candidate = next(
+                (
+                    c
+                    for c in self.latest_candidates
+                    if c.callsign == callsign and c.freq_hz == freq_hz and c.mode == mode
+                ),
+                None,
+            )
+            if candidate is None:
+                decision = TuneDecision(
+                    "NONE",
+                    None,
+                    f"kandidát {callsign} ({mode}, {freq_hz} Hz) není mezi aktuálně "
+                    "zobrazenými kandidáty -- vyber ho znovu ze seznamu a zkus to znovu",
+                )
+                self.last_decision = decision
+                return decision
+
+            decision = TuneDecision(
+                "TUNE",
+                candidate,
+                f"ruční naladění tlačítkem NALADIT na {candidate.callsign} "
+                f"({candidate.mode}, {candidate.freq_hz} Hz)",
+            )
+            try:
+                new_state = apply_decision(self.rig, decision, self.db)
+            except Exception as exc:
+                self.last_decision = TuneDecision(
+                    "ERROR", candidate, f"naladění na {candidate.callsign} selhalo: {exc}"
+                )
+                raise
+            if new_state is not None:
+                self.current_rig_state = new_state
+            self.last_decision = decision
+            return decision
+
     def sync_rig_state_from_hardware(self) -> None:
         """Načte aktuální frekvenci/mód z riggu (např. při startu), aby
         AUTO TUNE znal skutečný stav i mimo vlastní historii ladění."""

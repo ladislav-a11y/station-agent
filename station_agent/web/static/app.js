@@ -17,7 +17,12 @@ const state = {
   modes: new Set(MODE_ORDER),
   bands: new Set(BAND_ORDER),
   candidates: [],
+  selected: null, // {callsign, freq_hz, mode} vybraného kandidáta pro NALADIT
 };
+
+function sameCandidateKey(a, b) {
+  return !!a && !!b && a.callsign === b.callsign && a.freq_hz === b.freq_hz && a.mode === b.mode;
+}
 
 function buildFilterCheckboxes(containerId, items, labels, activeSet, onChange) {
   const container = document.getElementById(containerId);
@@ -51,6 +56,26 @@ function fmtAge(seconds) {
   return `${minutes} min ${rem} s`;
 }
 
+function renderTuneControls() {
+  const button = document.getElementById("tune-button");
+  const selectedEl = document.getElementById("tune-selected");
+  if (state.selected) {
+    button.disabled = false;
+    selectedEl.textContent = `Vybráno: ${state.selected.callsign} -- ${(state.selected.freq_hz / 1e6).toFixed(3)} MHz ${state.selected.mode}`;
+  } else {
+    button.disabled = true;
+    selectedEl.textContent = "Nevybrán žádný kandidát.";
+  }
+}
+
+function selectCandidate(c) {
+  state.selected = sameCandidateKey(state.selected, c)
+    ? null
+    : { callsign: c.callsign, freq_hz: c.freq_hz, mode: c.mode };
+  renderCandidates();
+  renderTuneControls();
+}
+
 function renderCandidates() {
   const tbody = document.getElementById("candidates-body");
   tbody.innerHTML = "";
@@ -58,17 +83,26 @@ function renderCandidates() {
     (c) => state.modes.has(c.mode) && state.bands.has(c.band)
   );
 
+  // Pokud vybraný kandidát mezi aktuálně zobrazenými (např. po refreshi
+  // nebo změně filtrů) už není, výběr zrušíme -- tlačítko NALADIT nesmí
+  // zůstat aktivní pro kandidáta, který v seznamu už neexistuje.
+  if (state.selected && !filtered.some((c) => sameCandidateKey(c, state.selected))) {
+    state.selected = null;
+  }
+
   if (filtered.length === 0) {
     const tr = document.createElement("tr");
     tr.className = "empty-row";
     tr.innerHTML = `<td colspan="8">Žádní kandidáti pro aktuální filtry.</td>`;
     tbody.appendChild(tr);
+    renderTuneControls();
     return;
   }
 
   for (const c of filtered) {
     const row = document.createElement("tr");
-    row.className = "candidate-row";
+    const isSelected = sameCandidateKey(state.selected, c);
+    row.className = "candidate-row" + (isSelected ? " selected" : "");
     const dxcc = c.dxcc ? `${c.dxcc.name} (${c.dxcc.continent})` : "?";
     const bearing = c.bearing_deg != null ? `${c.bearing_deg}° / ${c.distance_km ?? "?"} km` : "-";
     const sources = c.confirming_sources.join(", ");
@@ -93,14 +127,14 @@ function renderCandidates() {
           .map((r) => `<li><strong>${r.factor}</strong>: ${r.points}/${r.max_points} -- ${r.detail}</li>`)
           .join("")
       : "";
-    reasonsRow.innerHTML = `<td colspan="8"><ul class="reasons-list" style="display:none">${reasons}</ul></td>`;
+    const reasonsDisplay = isSelected ? "block" : "none";
+    reasonsRow.innerHTML = `<td colspan="8"><ul class="reasons-list" style="display:${reasonsDisplay}">${reasons}</ul></td>`;
     tbody.appendChild(reasonsRow);
 
-    row.addEventListener("click", () => {
-      const list = reasonsRow.querySelector("ul");
-      list.style.display = list.style.display === "none" ? "block" : "none";
-    });
+    row.addEventListener("click", () => selectCandidate(c));
   }
+
+  renderTuneControls();
 }
 
 async function postFilters() {
@@ -181,6 +215,38 @@ async function refreshStatus() {
     console.error("refreshStatus selhalo", err);
   }
 }
+
+function renderTuneResult(text, isError) {
+  const el = document.getElementById("tune-result");
+  el.textContent = text;
+  el.className = "tune-result" + (isError ? " tune-error" : " tune-ok");
+}
+
+document.getElementById("tune-button").addEventListener("click", async () => {
+  const candidate = state.selected;
+  if (!candidate) return; // obrana navíc -- tlačítko je bez výběru disabled
+
+  const button = document.getElementById("tune-button");
+  button.disabled = true;
+  renderTuneResult(`Ladím na ${candidate.callsign}...`, false);
+  try {
+    const res = await fetch("/api/tune", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(candidate),
+    });
+    const status = await res.json();
+    renderRigStatus(status);
+    renderDecision(status);
+    const reason = status.last_decision ? status.last_decision.reason : status.error;
+    renderTuneResult(reason || (res.ok ? "Naladěno." : "Naladění selhalo."), !res.ok);
+  } catch (err) {
+    console.error("NALADIT selhalo", err);
+    renderTuneResult(`Naladění selhalo: ${err}`, true);
+  } finally {
+    renderTuneControls();
+  }
+});
 
 document.getElementById("autotune-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();

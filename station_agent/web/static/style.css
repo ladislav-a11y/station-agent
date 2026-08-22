@@ -95,6 +95,54 @@ tr.candidate-row:hover {
   background: #8882;
 }
 
+tr.candidate-row.selected {
+  background: #1976d244;
+  outline: 2px solid #1976d2aa;
+  outline-offset: -2px;
+}
+
+.hint {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  margin: 0 0 0.5rem;
+}
+
+.tune-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+#tune-button {
+  font-weight: 700;
+}
+
+#tune-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tune-selected {
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.tune-result {
+  font-family: monospace;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  min-height: 1.2em;
+}
+
+.tune-result.tune-error {
+  color: #c62828;
+}
+
+.tune-result.tune-ok {
+  color: #2e7d32;
+}
+
 .score-badge {
   display: inline-block;
   min-width: 2.4em;
