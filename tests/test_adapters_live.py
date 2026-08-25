@@ -15,6 +15,7 @@ from __future__ import annotations
 import threading
 import unittest
 import urllib.error
+import warnings
 from email.utils import format_datetime
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -133,6 +134,16 @@ class PSKReporterLiveFetchErrorTests(_LocalHttpServerTestCase):
         with self.assertRaises(urllib.error.HTTPError):
             adapter.fetch()
 
+    def test_http_error_response_is_closed(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ResourceWarning)
+            try:
+                fetch_pskreporter_xml(self.base_url, timeout_s=5)
+            except urllib.error.HTTPError as exc:
+                self.assertTrue(exc.closed)
+            else:
+                self.fail("Expected HTTPError")
+
 
 class PSKReporterRateLimitTests(_LocalHttpServerTestCase):
     """Live test odhalil HTTP 429 -- ověřuje se, že se to nepropaguje jako
@@ -151,6 +162,15 @@ class PSKReporterRateLimitTests(_LocalHttpServerTestCase):
         adapter = PSKReporterAdapter(query_url=self.base_url, timeout_s=5)
         with self.assertRaises(RateLimitedError):
             adapter.fetch()
+
+    def test_429_http_response_is_closed(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", ResourceWarning)
+            with self.assertRaises(RateLimitedError) as ctx:
+                fetch_pskreporter_xml(self.base_url, timeout_s=5)
+        cause = ctx.exception.__cause__
+        self.assertIsInstance(cause, urllib.error.HTTPError)
+        self.assertTrue(cause.closed)
 
 
 class PSKReporterRateLimitNoRetryAfterTests(_LocalHttpServerTestCase):
