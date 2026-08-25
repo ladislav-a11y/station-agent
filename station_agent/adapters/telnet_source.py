@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import time
 import threading
 from collections import deque
 
@@ -59,6 +60,7 @@ class LiveTelnetSpotSource(SpotSource):
         host: str,
         port: int,
         callsign: str,
+        post_login_command: str = "",
         connect_timeout_s: float = DEFAULT_CONNECT_TIMEOUT_S,
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         reconnect_initial_seconds: float = DEFAULT_RECONNECT_INITIAL_SECONDS,
@@ -67,6 +69,7 @@ class LiveTelnetSpotSource(SpotSource):
         self.host = host
         self.port = port
         self.callsign = callsign
+        self.post_login_command = post_login_command
         self.connect_timeout_s = connect_timeout_s
         self.read_timeout_s = read_timeout_s
         self.reconnect_initial_seconds = reconnect_initial_seconds
@@ -164,21 +167,40 @@ class LiveTelnetSpotSource(SpotSource):
         file_obj = None
         try:
             sock.settimeout(self.read_timeout_s)
-            sock.sendall(f"{self.callsign}\r\n".encode("ascii", errors="ignore"))
             file_obj = sock.makefile("r", encoding="utf-8", errors="replace", newline="\n")
+            sock.sendall(f"{self.callsign}\r\n".encode("ascii", errors="ignore"))
+            if self.post_login_command:
+                sock.sendall(f"{self.post_login_command}\r\n".encode("ascii", errors="ignore"))
             # Úspěšné připojení + odeslání loginu -- reset backoffu a chyby,
             # i kdyby ještě nedorazil žádný rozpoznatelný spot.
             with self._lock:
                 self._backoff_seconds = self.reconnect_initial_seconds
                 self._last_error = None
-            for raw_line in file_obj:
-                if self._stop_event.is_set():
-                    return
-                spot = self.parse_line(raw_line)
-                if spot is not None:
-                    with self._lock:
-                        self._queue.append(spot)
-                        self._ever_received_data = True
+            buffer = ""
+            while not self._stop_event.is_set():
+                data = sock.recv(4096)
+                if not data:
+                    if buffer:
+                        raw_line = buffer
+                        buffer = ""
+                        spot = self.parse_line(raw_line)
+                        if spot is not None:
+                            with self._lock:
+                                self._queue.append(spot)
+                                self._ever_received_data = True
+                    break
+
+                buffer += data.decode("utf-8", errors="replace")
+
+                while "\n" in buffer:
+                    raw_line, buffer = buffer.split("\n", 1)
+                    raw_line += "\n"
+
+                    spot = self.parse_line(raw_line)
+                    if spot is not None:
+                        with self._lock:
+                            self._queue.append(spot)
+                            self._ever_received_data = True
             raise ConnectionError(f"{self.name}: server {self.host}:{self.port} ukončil spojení")
         finally:
             with self._lock:
