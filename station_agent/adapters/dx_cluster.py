@@ -123,7 +123,7 @@ def parse_spot_line(line: str, now: float | None = None) -> Spot | None:
 
     now = time.time() if now is None else now
 
-    match = _LINE_RE.match(line.rstrip("\r\n")) or _LIVE_LINE_RE.match(line.rstrip("\r\n"))
+    # DXSpider/W3LPL can append terminal BEL (0x07) characters to live spots.\r\n    # Strip only trailing CR/LF/BEL so historical `sh/dx` and live stream\r\n    # use the same parser path.\r\n    clean_line = line.rstrip("\r\n\x07")\r\n\r\n    match = _LINE_RE.match(clean_line) or _LIVE_LINE_RE.match(clean_line)
 
     if not match:
 
