@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from station_agent.bandplan import freq_to_band
+from station_agent.bandplan import canonical_digital_dial_frequency, freq_to_band
 from station_agent.modes import normalize_mode
 
 
@@ -26,6 +26,7 @@ class Spot:
     def __post_init__(self) -> None:
         self.callsign = self.callsign.strip().upper()
         self.mode = normalize_mode(self.mode)
+        self.freq_hz = canonical_digital_dial_frequency(self.freq_hz, self.mode)
         if not self.band:
             self.band = freq_to_band(self.freq_hz) or "unknown"
 

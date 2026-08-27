@@ -21,11 +21,48 @@ class DXClusterParsingTests(unittest.TestCase):
         self.assertEqual(spot.source, "dx_cluster")
         self.assertAlmostEqual(spot.timestamp, FIXED_NOW - 30, delta=1)
 
-    def test_line_without_mode_keyword_falls_back_to_other_digital(self):
+
+    def test_known_ft8_frequency_is_inferred_without_mode_keyword(self):
         line = "DX de OK1KT:     10136.0  VU2PQR       good sigs             1230Z"
         spot = parse_spot_line(line, now=FIXED_NOW)
         self.assertIsNotNone(spot)
-        self.assertEqual(spot.mode, "OTHER_DIGITAL")
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.freq_hz, 10_136_000)
+
+    def test_ssb_frequency_is_inferred_without_mode_keyword(self):
+        line = "DX de OK1KT:     7190.0  I1EEW        DCI IM090             1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "SSB")
+        self.assertEqual(spot.freq_hz, 7_190_000)
+
+    def test_ft8_spot_is_normalized_to_standard_dial_frequency(self):
+        line = "DX de OK1KT:     14075.2  JA1XYZ       FT8                    1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.freq_hz, 14_074_000)
+
+    def test_ft8_contest_spot_is_normalized_to_contest_dial_frequency(self):
+        line = "DX de OK1KT:     14091.2  JA1XYZ       FT8                    1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.freq_hz, 14_090_000)
+    def test_ft4_contest_spot_is_normalized_to_contest_dial_frequency(self):
+        line = "DX de OK1KT:     14141.2  JA1XYZ       FT4                    1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "FT4")
+        self.assertEqual(spot.freq_hz, 14_140_000)
+    def test_live_dxspider_line_with_bell_terminators(self):
+        line = "DX de UR3QCB:    21074.0  EN35UKR      FT8, Independence Day          0804Z\x07\x07"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.callsign, "EN35UKR")
+        self.assertEqual(spot.freq_hz, 21_074_000)
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.spotter, "UR3QCB")
 
     def test_invalid_line_returns_none(self):
         self.assertIsNone(parse_spot_line("this is not a dx spot", now=FIXED_NOW))
@@ -59,6 +96,39 @@ class RBNParsingTests(unittest.TestCase):
         self.assertEqual(spot.snr_db, 12.0)
         self.assertEqual(spot.source, "rbn")
 
+    def test_known_ft8_frequency_is_inferred_without_mode_keyword(self):
+        line = "DX de OK1KT:     10136.0  VU2PQR       good sigs             1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.freq_hz, 10_136_000)
+
+    def test_ssb_frequency_is_inferred_without_mode_keyword(self):
+        line = "DX de OK1KT:     7190.0  I1EEW        DCI IM090             1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "SSB")
+        self.assertEqual(spot.freq_hz, 7_190_000)
+
+    def test_ft8_spot_is_normalized_to_standard_dial_frequency(self):
+        line = "DX de OK1KT:     14075.2  JA1XYZ       FT8                    1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.freq_hz, 14_074_000)
+
+    def test_ft8_contest_spot_is_normalized_to_contest_dial_frequency(self):
+        line = "DX de OK1KT:     14091.2  JA1XYZ       FT8                    1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.freq_hz, 14_090_000)
+    def test_ft4_contest_spot_is_normalized_to_contest_dial_frequency(self):
+        line = "DX de OK1KT:     14141.2  JA1XYZ       FT4                    1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.mode, "FT4")
+        self.assertEqual(spot.freq_hz, 14_140_000)
     def test_invalid_line_returns_none(self):
         self.assertIsNone(parse_rbn_line("garbage", now=FIXED_NOW))
 
@@ -97,7 +167,7 @@ class PSKReporterParsingTests(unittest.TestCase):
     def test_adapter_defaults_to_real_pskreporter_endpoint(self):
         # PSKReporterAdapter je jednoduché synchronní HTTP GET -- fetch()
         # rovnou provede reálný požadavek (viz tests/test_adapters_live.py).
-        # DXClusterAdapter/RBNAdapter naproti tomu běží na vlastním vlákně
+        # DXClusterAdapter/RBNAdapter naproti tomu běží na vlastním vláknĜ
         # (viz tests/test_telnet_source.py) a než přijdou první reálná
         # data, fetch() hlásí SourceNotReadyError (GUI stav "pending").
         adapter = PSKReporterAdapter()

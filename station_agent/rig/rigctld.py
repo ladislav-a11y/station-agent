@@ -105,7 +105,11 @@ class RigctldClient(RigControl):
         _raise_on_error(lines, f"set_frequency({freq_hz})")
 
     def set_mode(self, mode: str, passband_hz: int = 0) -> None:
-        rig_mode = _TO_RIGCTLD_MODE.get(mode, "PKTUSB")
+        if mode == "SSB":
+            freq_hz = self.get_frequency()
+            rig_mode = "LSB" if freq_hz < 10_000_000 else "USB"
+        else:
+            rig_mode = _TO_RIGCTLD_MODE.get(mode, "PKTUSB")
         lines = self._command(f"M {rig_mode} {passband_hz}", expected_lines=1)
         _raise_on_error(lines, f"set_mode({mode})")
 

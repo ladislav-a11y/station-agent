@@ -121,6 +121,8 @@ def fetch_pskreporter_xml(
             charset = response.headers.get_content_charset() or "utf-8"
             return response.read().decode(charset)
     except urllib.error.HTTPError as exc:
+        exc.read()
+        exc.close()
         if exc.code == 429:
             retry_after = _parse_retry_after(exc.headers.get("Retry-After") if exc.headers else None)
             raise RateLimitedError(retry_after_seconds=retry_after) from exc

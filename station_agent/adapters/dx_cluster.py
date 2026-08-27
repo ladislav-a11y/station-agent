@@ -50,6 +50,7 @@ from station_agent.adapters._common import resolve_hhmm_timestamp
 
 from station_agent.adapters.telnet_source import LiveTelnetSpotSource
 
+from station_agent.bandplan import infer_mode_from_frequency
 from station_agent.models import Spot
 
 
@@ -123,7 +124,8 @@ def parse_spot_line(line: str, now: float | None = None) -> Spot | None:
 
     now = time.time() if now is None else now
 
-    match = _LINE_RE.match(line.rstrip("\r\n")) or _LIVE_LINE_RE.match(line.rstrip("\r\n"))
+    clean_line = line.rstrip("\r\n\x07")
+    match = _LINE_RE.match(clean_line) or _LIVE_LINE_RE.match(clean_line)
 
     if not match:
 
@@ -132,6 +134,7 @@ def parse_spot_line(line: str, now: float | None = None) -> Spot | None:
     freq_hz = int(round(float(match.group("freq_khz")) * 1000))
 
     comment = match.group("comment").strip()
+    mode = _extract_mode(comment) or infer_mode_from_frequency(freq_hz)
 
     return Spot(
 
@@ -139,7 +142,7 @@ def parse_spot_line(line: str, now: float | None = None) -> Spot | None:
 
         freq_hz=freq_hz,
 
-        mode=_extract_mode(comment),
+        mode=mode,
 
         timestamp=resolve_hhmm_timestamp(match.group("hhmm"), now),
 
@@ -200,6 +203,3 @@ class DXClusterAdapter(LiveTelnetSpotSource):
     def parse_line(self, line: str) -> Spot | None:
 
         return parse_spot_line(line)
-
-
-
