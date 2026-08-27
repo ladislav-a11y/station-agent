@@ -30,6 +30,15 @@ class DXClusterParsingTests(unittest.TestCase):
     def test_invalid_line_returns_none(self):
         self.assertIsNone(parse_spot_line("this is not a dx spot", now=FIXED_NOW))
 
+    def test_live_dxspider_line_with_bell_terminators(self):
+        # Real W3LPL/DXSpider live stream line captured 2026-08-27.
+        line = "DX de UR3QCB:    21074.0  EN35UKR      FT8, Independence Day          0804Z\x07\x07"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual(spot.callsign, "EN35UKR")
+        self.assertEqual(spot.freq_hz, 21_074_000)
+        self.assertEqual(spot.mode, "FT8")
+        self.assertEqual(spot.spotter, "UR3QCB")
     def test_midnight_rollover_goes_to_previous_day(self):
         # now = 00:05 UTC, spot hhmm = 23:59 -> musí to být včerejšek, ne za pár hodin "v budoucnu"
         now = datetime(2024, 1, 2, 0, 5, 0, tzinfo=timezone.utc).timestamp()
