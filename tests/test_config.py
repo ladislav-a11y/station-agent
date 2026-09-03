@@ -1,8 +1,18 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from station_agent.config import PollingConfig, WebConfig, _MiniYamlParser, load_config
+from station_agent.bandplan import SUPPORTED_BANDS
+from station_agent.modes import SUPPORTED_MODES
+from station_agent.config import (
+    NotificationsConfig,
+    PollingConfig,
+    WebConfig,
+    _MiniYamlParser,
+    config_from_dict,
+    load_config,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -84,6 +94,121 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.log4om.host, "127.0.0.1")
         self.assertEqual(config.log4om.port, 2333)
         self.assertEqual(config.web.port, 9999)
+        self.assertTrue(config.propagation.enabled)
+
+    def test_missing_config_file_raises_actionable_error(self):
+        # Fresh checkout nemá commitnutý config.yaml (viz .gitignore) -- bez
+        # této hlídky by load_config selhal syrovým FileNotFoundError bez
+        # návodu, jak si vlastní config vytvořit (viz README.md, sekce
+        # Instalace: `cp`/`copy config.example.yaml config.yaml`).
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "config.yaml"
+            with self.assertRaises(FileNotFoundError) as ctx:
+                load_config(missing_path)
+        message = str(ctx.exception)
+        self.assertIn(str(missing_path), message)
+        # Návrhový příkaz musí obsahovat plnou cestu k example configu, ne
+        # jen holé jméno souboru -- jinak "cp config.example.yaml ..." selže,
+        # pokud uživatel/orchestrátor spustí agenta z jiného pracovního
+        # adresáře, než je kořen repozitáře.
+        self.assertIn(str(REPO_ROOT / "config.example.yaml"), message)
+        # Na Windows (primární cílová platforma, viz README "Instalace a
+        # spuštění na Windows 11") musí návod použít `copy` -- syrový cmd.exe
+        # (na rozdíl od PowerShell, kde je `cp` aliasovaný na Copy-Item) nemá
+        # `cp` jako vestavěný příkaz, takže by navrhovaný příkaz jinak selhal.
+        expected_copy_cmd = "copy" if os.name == "nt" else "cp"
+        self.assertIn(f"{expected_copy_cmd} {REPO_ROOT / 'config.example.yaml'}", message)
+        # Nadřazený adresář (tmp) existuje, takže navržený copy/cp příkaz je
+        # rovnou spustitelný -- žádné dodatečné varování o chybějícím
+        # adresáři tu být nemá (viz test níže pro opačný případ).
+        self.assertNotIn("nadřazený adresář", message)
+
+    def test_missing_config_file_with_missing_parent_dir_warns_about_it(self):
+        # Pokud --config ukazuje do adresáře, který vůbec neexistuje (např.
+        # překlep v cestě), navržený "cp config.example.yaml <cesta>" by
+        # selhal podruhé se zavádějící hláškou. Hláška proto musí uživatele
+        # upozornit, že je potřeba nejdřív vytvořit nadřazený adresář.
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "no_such_subdir" / "config.yaml"
+            with self.assertRaises(FileNotFoundError) as ctx:
+                load_config(missing_path)
+        message = str(ctx.exception)
+        self.assertIn(str(missing_path.parent), message)
+        self.assertIn("nadřazený adresář", message)
+
+    def test_config_path_pointing_at_directory_raises_distinct_error(self):
+        # Pokud --config omylem ukazuje na existující adresář (např. překlep
+        # nebo zbylá složka se stejným jménem), hláška "neexistuje" spolu s
+        # návodem "zkopíruj příklad na tuto cestu" by byla zavádějící --
+        # cesta už obsazená je, jen to není soubor.
+        with tempfile.TemporaryDirectory() as tmp:
+            directory_path = Path(tmp) / "config.yaml"
+            directory_path.mkdir()
+            with self.assertRaises(FileNotFoundError) as ctx:
+                load_config(directory_path)
+        message = str(ctx.exception)
+        self.assertIn(str(directory_path), message)
+        self.assertNotIn("neexistuje", message)
+        self.assertNotIn("Zkopíruj příklad", message)
+
+    def test_malformed_yaml_content_raises_value_error_not_yaml_error(self):
+        # Když je nainstalovaný PyYAML (viz requirements.txt, nepovinné), je
+        # yaml.YAMLError odlišná třída než ValueError -- bez převodu v
+        # _load_yaml_text by tahle chyba propadla skrz load_config
+        # nezachycená přes cli.py::main (ten odchytává jen FileNotFoundError
+        # a ValueError, viz DIAGNOSIS_P5.md). Tab uvnitř odsazení je platný
+        # důvod k selhání parsování v PyYAML.
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML není nainstalovaný -- vestavěný fallback parser tento vstup toleruje jinak")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text("station:\n  callsign: OK1TEST\n\tqth_locator: JO70\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                load_config(path)
+        self.assertNotIsInstance(ctx.exception, FileNotFoundError)
+        self.assertIn("YAML", str(ctx.exception))
+
+    def test_top_level_yaml_list_raises_actionable_value_error(self):
+        # Validní YAML, ale ne mapování na nejvyšší úrovni (např. omylem
+        # vložený seznam) -- bez hlídky v load_config by config_from_dict
+        # spadl na nezachyceném AttributeError z `raw.get(...)`. Reprodukuje
+        # se stejně s PyYAML i s vestavěným _MiniYamlParser fallbackem, viz
+        # DIAGNOSIS_P5.md.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text("- foo\n- bar\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                load_config(path)
+        message = str(ctx.exception)
+        self.assertNotIsInstance(ctx.exception, FileNotFoundError)
+        self.assertIn(str(path), message)
+        self.assertIn("mapování", message)
+
+    def test_explicit_null_numeric_field_raises_actionable_value_error(self):
+        # "rigctld_port:" bez hodnoty za dvojtečkou je platný YAML (klíč
+        # existuje, hodnota je None) -- na rozdíl od chybějícího klíče se
+        # proto nepoužije výchozí hodnota a config_from_dict zavolá
+        # int(None), což vyhazuje TypeError, ne ValueError. Bez převodu v
+        # load_config by tahle chyba propadla skrz cli.py::main nezachycená
+        # (ten odchytává jen FileNotFoundError a ValueError, viz
+        # DIAGNOSIS_P5.md).
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.yaml"
+            path.write_text(
+                "station:\n  callsign: OK1TEST\nrig:\n  mode: mock\n  rigctld_port:\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError) as ctx:
+                load_config(path)
+        self.assertNotIsInstance(ctx.exception, FileNotFoundError)
+        self.assertNotIsInstance(ctx.exception, TypeError)
+        self.assertIn(str(path), str(ctx.exception))
+
+    def test_propagation_can_be_explicitly_disabled(self):
+        config = config_from_dict({"propagation": {"enabled": False}})
+        self.assertFalse(config.propagation.enabled)
 
     def test_polling_defaults_when_section_missing(self):
         # MINIMAL_YAML výše nemá žádnou sekci `polling:` -- musí se použít
@@ -138,6 +263,126 @@ class WebConfigSafetyTests(unittest.TestCase):
     def test_accepts_loopback_hosts(self):
         WebConfig(host="127.0.0.1", port=8765)
         WebConfig(host="localhost", port=8765)
+
+    def test_rejects_port_out_of_valid_range(self):
+        # Bez tohoto by neplatny web.port (napr. preklep s extra cislici)
+        # projel load_config() v poradku a spadl az na nezachycenem
+        # OverflowError ze socket.bind() uvnitr create_server(), ktere v
+        # cli.main() bezi mimo try/except (viz DIAGNOSIS_P5.md).
+        with self.assertRaises(ValueError):
+            WebConfig(host="127.0.0.1", port=999999)
+        with self.assertRaises(ValueError):
+            WebConfig(host="127.0.0.1", port=-1)
+
+    def test_accepts_port_at_range_boundaries(self):
+        WebConfig(host="127.0.0.1", port=0)
+        WebConfig(host="127.0.0.1", port=65535)
+
+
+class PresetsConfigTests(unittest.TestCase):
+    def test_default_presets_used_when_section_missing(self):
+        config = config_from_dict({})
+        self.assertIn("all", config.presets)
+        self.assertEqual(config.presets["all"].bands, list(SUPPORTED_BANDS))
+        self.assertEqual(config.presets["all"].modes, list(SUPPORTED_MODES))
+
+    def test_custom_presets_parsed_from_dict_of_dicts(self):
+        raw = {
+            "presets": {
+                "ssb_dx": {"label": "SSB DX", "bands": ["20m", "15m"], "modes": ["SSB"]},
+            }
+        }
+        config = config_from_dict(raw)
+        self.assertEqual(set(config.presets.keys()), {"ssb_dx"})
+        preset = config.presets["ssb_dx"]
+        self.assertEqual(preset.label, "SSB DX")
+        self.assertEqual(preset.bands, ["20m", "15m"])
+        self.assertEqual(preset.modes, ["SSB"])
+
+    def test_unknown_bands_and_modes_in_preset_are_filtered_out(self):
+        raw = {"presets": {"weird": {"label": "x", "bands": ["20m", "999m"], "modes": ["SSB", "MORSE"]}}}
+        config = config_from_dict(raw)
+        self.assertEqual(config.presets["weird"].bands, ["20m"])
+        self.assertEqual(config.presets["weird"].modes, ["SSB"])
+
+    def test_mini_yaml_parser_handles_nested_preset_dict(self):
+        text = (
+            "presets:\n"
+            "  ssb_dx:\n"
+            "    label: \"SSB DX\"\n"
+            "    bands:\n"
+            "      - \"20m\"\n"
+            "    modes:\n"
+            "      - \"SSB\"\n"
+        )
+        parsed = _MiniYamlParser(text).parse()
+        config = config_from_dict(parsed)
+        self.assertEqual(config.presets["ssb_dx"].label, "SSB DX")
+        self.assertEqual(config.presets["ssb_dx"].bands, ["20m"])
+
+    def test_mini_yaml_parser_handles_inline_flow_style_list(self):
+        # config.example.yaml (viz presets sekce) používá jednořádkový
+        # "flow" zápis seznamu -- bands: ["20m", "15m"] -- ne blokový
+        # zápis s "-". Bez podpory v _parse_scalar by se celá hodnota
+        # naparsovala jako doslovný text, filtr proti SUPPORTED_BANDS by
+        # neprošel ani jeden znak a předvolba by tiše spadla na výchozí
+        # "všechna pásma/módy" místo zamýšleného užšího výběru -- reálně
+        # reprodukováno přímo na distribuovaném config.example.yaml v
+        # prostředí bez PyYAML (viz DIAGNOSIS_P5.md).
+        text = (
+            "presets:\n"
+            "  ssb_dx:\n"
+            "    label: \"SSB DX\"\n"
+            "    bands: [\"20m\", \"15m\"]\n"
+            "    modes: [\"SSB\"]\n"
+        )
+        parsed = _MiniYamlParser(text).parse()
+        self.assertEqual(parsed["presets"]["ssb_dx"]["bands"], ["20m", "15m"])
+        config = config_from_dict(parsed)
+        self.assertEqual(config.presets["ssb_dx"].bands, ["20m", "15m"])
+        self.assertEqual(config.presets["ssb_dx"].modes, ["SSB"])
+
+    def test_mini_yaml_parser_parses_config_example_presets_correctly(self):
+        # End-to-end regrese na skutečném distribuovaném souboru, který
+        # README nabádá zkopírovat jako config.yaml (viz load_config) --
+        # ověřuje, že "ssb"/"cw"/"digi" předvolby v config.example.yaml
+        # zůstanou po parsování bez PyYAML skutečně užší než "all", ne
+        # tiše nahrazené plnou sadou pásem/módů.
+        text = (REPO_ROOT / "config.example.yaml").read_text(encoding="utf-8")
+        parsed = _MiniYamlParser(text).parse()
+        config = config_from_dict(parsed)
+        self.assertEqual(config.presets["ssb"].modes, ["SSB"])
+        self.assertEqual(config.presets["cw"].modes, ["CW"])
+        self.assertNotEqual(config.presets["digi"].modes, config.presets["all"].modes)
+
+
+class NotificationsConfigTests(unittest.TestCase):
+    def test_defaults(self):
+        cfg = NotificationsConfig()
+        self.assertTrue(cfg.enabled)
+        self.assertGreaterEqual(cfg.min_distinct_stations, 2)
+        self.assertGreater(cfg.cooldown_minutes, 0)
+        self.assertGreater(cfg.max_per_hour, 0)
+
+    def test_rejects_too_low_min_distinct_stations(self):
+        with self.assertRaises(ValueError):
+            NotificationsConfig(min_distinct_stations=1)
+
+    def test_rejects_non_positive_cooldown(self):
+        with self.assertRaises(ValueError):
+            NotificationsConfig(cooldown_minutes=0)
+
+    def test_rejects_non_positive_max_per_hour(self):
+        with self.assertRaises(ValueError):
+            NotificationsConfig(max_per_hour=0)
+
+    def test_parsed_from_dict(self):
+        raw = {"notifications": {"enabled": False, "min_distinct_stations": 3, "cooldown_minutes": 10, "max_per_hour": 4}}
+        config = config_from_dict(raw)
+        self.assertFalse(config.notifications.enabled)
+        self.assertEqual(config.notifications.min_distinct_stations, 3)
+        self.assertEqual(config.notifications.cooldown_minutes, 10)
+        self.assertEqual(config.notifications.max_per_hour, 4)
 
 
 if __name__ == "__main__":

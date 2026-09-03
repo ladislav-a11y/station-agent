@@ -28,11 +28,11 @@ class FakeRigctldServer(threading.Thread):
         self.mode = "USB"
         self.passband = 2400
         self.fail_next = False
-        self._stop = False
+        self._running = True
 
     def run(self) -> None:
         self.sock.settimeout(0.5)
-        while not self._stop:
+        while self._running:
             try:
                 conn, _ = self.sock.accept()
             except OSError:
@@ -40,7 +40,7 @@ class FakeRigctldServer(threading.Thread):
             with conn:
                 conn.settimeout(2)
                 buf = b""
-                while not self._stop:
+                while self._running:
                     try:
                         chunk = conn.recv(4096)
                     except OSError:
@@ -78,7 +78,7 @@ class FakeRigctldServer(threading.Thread):
             conn.sendall(b"RPRT -1\n")
 
     def stop(self) -> None:
-        self._stop = True
+        self._running = False
         self.sock.close()
 
 

@@ -7,26 +7,31 @@ import json
 import socket
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 
 from station_agent.adapters.mock import MockAdapter
 from station_agent.aggregator import Aggregator
 from station_agent.app_state import AppState
-from station_agent.config import AppConfig, WebConfig
+from station_agent.config import AppConfig, NotificationsConfig, WebConfig
 from station_agent.db import Database
+from station_agent.models import RigState
+from station_agent.notifications import BandOpeningTracker
+from station_agent.propagation import PropagationContext
 from station_agent.rig.mock_rig import MockRig
 from station_agent.scoring import DEFAULT_WEIGHTS, ScoringConfig
 from station_agent.web import server as server_module
 from station_agent.web.server import create_server
 
 
-def build_test_app_state(port: int = 0) -> AppState:
+def build_test_app_state(port: int = 0, scoring_cfg: ScoringConfig | None = None) -> AppState:
     config = AppConfig()
     config.web = WebConfig(host="127.0.0.1", port=port)
     db = Database(":memory:")
     rig = MockRig()
-    scoring_cfg = ScoringConfig(weights=dict(DEFAULT_WEIGHTS), spot_max_age_minutes=15)
+    if scoring_cfg is None:
+        scoring_cfg = ScoringConfig(weights=dict(DEFAULT_WEIGHTS), spot_max_age_minutes=15)
     aggregator = Aggregator([MockAdapter()], db, scoring_cfg, qth_latlon=(50.0755, 14.4378))
     return AppState(config, db, rig, aggregator)
 
@@ -78,6 +83,19 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("css", content_type)
 
+    def test_autotune_and_hold_use_immediate_rocker_and_reset_manual_selection(self):
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+        self.assertIn('type="radio" name="autotune-mode" id="at-enabled"', page)
+        self.assertIn('type="radio" name="autotune-mode" id="at-hold"', page)
+        self.assertIn('class="autotune-mode-box"', page)
+
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn('document.getElementById("at-enabled").addEventListener("change"', script)
+        self.assertIn("clearCandidateSelection();", script)
+        self.assertIn("updateAutotune();", script)
+
     def test_candidates_endpoint_returns_scored_candidates(self):
         status, content_type, body = self._get("/api/candidates")
         self.assertEqual(status, 200)
@@ -111,6 +129,92 @@ class WebApiTests(unittest.TestCase):
         for key in ("status", "last_error", "last_success_age_seconds", "backoff_remaining_seconds", "cached_spot_count"):
             self.assertIn(key, mock_status)
         self.assertEqual(mock_status["status"], "ok")
+
+    def test_status_endpoint_reports_presets(self):
+        status, _, body = self._get("/api/status")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertIn("presets", data)
+        self.assertTrue(data["presets"])
+        for preset in data["presets"]:
+            for key in ("key", "label", "bands", "modes"):
+                self.assertIn(key, preset)
+
+    def test_status_and_gui_expose_current_kp_in_header_corner(self):
+        context = PropagationContext(
+            kp=4.0, solar_flux=130.0, observed_at=1_700_000_000.0,
+            source="NOAA fixture", qth_locator="JN79FG",
+            band_quality={"20m": 0.5}, explanation="fixture",
+        )
+
+        class FixturePropagationService:
+            @property
+            def context(self):
+                return context
+
+        self.app_state.propagation = FixturePropagationService()
+        status, _, body = self._get("/api/status")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["propagation"]["kp"], 4.0)
+
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+        self.assertIn('id="propagation-status"', page)
+        self.assertIn('id="propagation-summary"', page)
+        self.assertIn('id="propagation-bands"', page)
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn("renderPropagation(status)", script)
+        self.assertIn("`Kp: ${p.kp.toFixed(1)}", script)
+        self.assertIn("p.solar_flux.toFixed(1)", script)
+        self.assertIn("Object.entries(p.band_quality || {})", script)
+
+    def test_notifications_endpoint_reports_logged_band_openings(self):
+        self.app_state.band_opening_tracker = BandOpeningTracker(
+            NotificationsConfig(
+                enabled=True, min_distinct_stations=2,
+                cooldown_minutes=30.0, max_per_hour=10,
+            )
+        )
+        event = self.app_state.band_opening_tracker.check({"20m": 6}, now=1000.0)[0]
+
+        status, _, body = self._get("/api/notifications")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(len(data["band_openings"]), 1)
+        entry = data["band_openings"][0]
+        self.assertEqual(entry["band"], event.band)
+        self.assertEqual(entry["station_count"], event.station_count)
+        self.assertEqual(entry["station_count_change"], 6)
+        self.assertIn("ts", entry)
+
+    def test_qso_history_requires_explicit_post_and_preserves_bearing(self):
+        self.app_state.refresh_candidates()
+        candidate = self.app_state.latest_candidates[0]
+        _, _, body = self._get("/api/qso/history")
+        before = len(json.loads(body)["history"])
+        status, data = self._post_json(
+            "/api/qso/history",
+            {"callsign": candidate.callsign, "freq_hz": candidate.freq_hz,
+             "mode": candidate.mode, "band": candidate.band, "bearing_deg": -999},
+        )
+        self.assertEqual(status, 201)
+        self.assertTrue(data["ok"])
+        _, _, body = self._get("/api/qso/history")
+        history = json.loads(body)["history"]
+        self.assertEqual(len(history), before + 1)
+        self.assertEqual(history[0]["callsign"], candidate.callsign)
+        self.assertEqual(history[0]["bearing_deg"], candidate.bearing_deg)
+
+    def test_qso_history_rejects_non_candidate_and_non_finite_frequency(self):
+        self.app_state.refresh_candidates()
+        for payload in (
+            {"callsign": "FAKE", "freq_hz": 14195000, "mode": "SSB", "band": "20m"},
+            {"callsign": "FAKE", "freq_hz": float("inf"), "mode": "SSB", "band": "20m"},
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self._post_json("/api/qso/history", payload)
+            self.assertIn(ctx.exception.code, (400, 409))
 
     def test_post_autotune_updates_settings(self):
         status, data = self._post_json(
@@ -149,10 +253,27 @@ class WebApiTests(unittest.TestCase):
         self.assertFalse(data["autotune"]["enabled"])
         self.assertTrue(data["autotune"]["hold"])
 
-    def test_status_hold_remaining_seconds_none_when_hold_inactive(self):
+    def test_status_countdown_runs_only_during_autotune(self):
+        self.app_state.current_rig_state = RigState(
+            freq_hz=14_195_000, mode="SSB", tuned_at=900.0, callsign="DX1AA", score=50,
+        )
+        self.app_state.config.autotune.min_hold_seconds = 120.0
         self._post_json("/api/autotune", {"enabled": True, "hold": False})
+        with mock.patch.object(server_module.time, "time", return_value=950.0):
+            _, _, body = self._get("/api/status")
+        data = json.loads(body)
+        self.assertEqual(data["autotune"]["autotune_remaining_seconds"], 70.0)
+        self.assertIsNone(data["autotune"]["hold_remaining_seconds"])
+
+        self._post_json("/api/autotune", {"enabled": False, "hold": False})
         _, _, body = self._get("/api/status")
         data = json.loads(body)
+        self.assertIsNone(data["autotune"]["autotune_remaining_seconds"])
+
+        self._post_json("/api/autotune", {"hold": True})
+        _, _, body = self._get("/api/status")
+        data = json.loads(body)
+        self.assertIsNone(data["autotune"]["autotune_remaining_seconds"])
         self.assertIsNone(data["autotune"]["hold_remaining_seconds"])
 
     def test_unknown_path_is_404(self):
@@ -176,6 +297,10 @@ class WebApiTests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(data["bands"], allowed_bands)
             self.assertEqual(data["modes"], allowed_modes)
+            self.assertEqual(
+                self.app_state.db.load_filter_preferences(),
+                (allowed_bands, allowed_modes),
+            )
 
             _, _, body = self._get("/api/status")
             refreshed = json.loads(body)
@@ -206,7 +331,18 @@ class AutoTuneRespectsGuiFiltersTests(unittest.TestCase):
     postavené nad výchozí (neomezenou) sadou módů/pásem z configu."""
 
     def setUp(self):
-        self.app_state = build_test_app_state()
+        # Tenhle test ověřuje routing filtrů do AUTO TUNE, ne scoring
+        # matematiku -- propagation faktor (viz scoring.py) záměrně
+        # odměňuje stanice na aktuálně "rušnějším" pásmu, což by s
+        # DEFAULT_WEIGHTS mohlo náhodně přeřadit pořadí mock kandidátů podle
+        # toho, kolik jich zrovna sdílí pásmo (viz spotters/band_activity).
+        # Proto tu používáme scoring config s propagation váhou 0 (přesunutou
+        # do signal), aby test zůstal deterministický vůči SNR mock dat a
+        # dál skutečně reprodukoval nahlášený filter-routing bug.
+        weights = dict(DEFAULT_WEIGHTS)
+        weights["signal"] += weights.pop("propagation", 0)
+        scoring_cfg = ScoringConfig(weights=weights, spot_max_age_minutes=15)
+        self.app_state = build_test_app_state(scoring_cfg=scoring_cfg)
         self.server = create_server(self.app_state)
         self.base_url = f"http://127.0.0.1:{self.server.server_address[1]}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)

@@ -82,11 +82,12 @@ class _RateLimitedHttpDateHandler(BaseHTTPRequestHandler):
     """``Retry-After`` může být podle RFC 7231 i HTTP-date, ne jen počet
     sekund -- ověřuje se, že to ``fetch_pskreporter_xml`` umí naparsovat."""
 
-    retry_after_date = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=45), usegmt=True)
-
     def do_GET(self):  # noqa: N802
+        # Vypočteno až při obsloužení požadavku, ne při definici třídy (import),
+        # jinak driftuje s dobou mezi collectem testů a jejich skutečným během.
+        retry_after_date = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=45), usegmt=True)
         self.send_response(429)
-        self.send_header("Retry-After", self.retry_after_date)
+        self.send_header("Retry-After", retry_after_date)
         self.end_headers()
 
     def log_message(self, format, *args):  # noqa: A002

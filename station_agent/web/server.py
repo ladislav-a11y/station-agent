@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -47,14 +48,15 @@ def _is_benign_disconnect(exc: BaseException) -> bool:
     return isinstance(exc, OSError) and getattr(exc, "winerror", None) in _BENIGN_DISCONNECT_WINERRORS
 
 
-def _hold_remaining_seconds(app_state: AppState) -> float | None:
-    """Odpočet HOLD pro GUI: kolik sekund ještě zbývá z ``min_hold_seconds``
-    od posledního naladění (ruční NALADIT i AUTO TUNE nastavují stejný
-    ``current_rig_state.tuned_at``). Vrátí ``None``, když HOLD není aktivní
-    nebo rig ještě nebyl na nic naladěn -- GUI pak žádný odpočet nezobrazí."""
+def _autotune_remaining_seconds(app_state: AppState) -> float | None:
+    """Kolik sekund AUTO TUNE ještě musí držet aktuální stanici.
+
+    ``min_hold_seconds`` je prodleva mezi automatickými přeladěními, nikoli
+    časový limit režimu HOLD. HOLD ladění blokuje bez odpočtu.
+    """
     cfg = app_state.config.autotune
     state = app_state.current_rig_state
-    if not cfg.hold or state is None:
+    if not cfg.enabled or cfg.hold or state is None:
         return None
     return round(max(0.0, cfg.min_hold_seconds - (time.time() - state.tuned_at)), 1)
 
@@ -62,12 +64,15 @@ def _hold_remaining_seconds(app_state: AppState) -> float | None:
 def _build_status(app_state: AppState) -> dict:
     cfg = app_state.config
     with app_state.lock:
+        propagation = app_state.propagation.context if app_state.propagation else None
         return {
             "rig": rig_state_to_dict(app_state.current_rig_state),
             "autotune": {
                 "enabled": cfg.autotune.enabled,
                 "hold": cfg.autotune.hold,
-                "hold_remaining_seconds": _hold_remaining_seconds(app_state),
+                # Zachování API klíče pro starší klienty; HOLD nemá časový limit.
+                "hold_remaining_seconds": None,
+                "autotune_remaining_seconds": _autotune_remaining_seconds(app_state),
                 "min_hold_seconds": cfg.autotune.min_hold_seconds,
                 "min_score_delta": cfg.autotune.min_score_delta,
             },
@@ -75,8 +80,21 @@ def _build_status(app_state: AppState) -> dict:
             "bands": cfg.bands,
             "modes": cfg.modes,
             "rig_mode": cfg.rig.mode,
+            "propagation": {
+                "kp": propagation.kp if propagation else None,
+                "solar_flux": propagation.solar_flux if propagation else None,
+                "observed_at": propagation.observed_at if propagation else None,
+                "source": propagation.source if propagation else None,
+                "qth_locator": propagation.qth_locator if propagation else None,
+                "band_quality": propagation.band_quality if propagation else {},
+                "explanation": propagation.explanation if propagation else None,
+            },
             "last_decision": decision_to_dict(app_state.last_decision),
             "sources": app_state.aggregator.source_status(),
+            "presets": [
+                {"key": key, "label": preset.label, "bands": preset.bands, "modes": preset.modes}
+                for key, preset in cfg.presets.items()
+            ],
         }
 
 
@@ -163,12 +181,41 @@ def _make_handler(app_state: AppState):
                         ]
                     }
                 )
+            elif path == "/api/notifications":
+                with app_state.lock:
+                    event = app_state.band_opening_tracker.best_event
+                self._send_json(
+                    {
+                        "band_openings": ([
+                            {
+                                "ts": event.ts, "band": event.band,
+                                "station_count": event.station_count,
+                                "station_count_change": event.station_count_change,
+                                "reason": event.reason,
+                            }
+                        ] if event is not None else [])
+                    }
+                )
+            elif path == "/api/qso/history":
+                with app_state.lock:
+                    rows = app_state.db.recent_qsos()
+                self._send_json(
+                    {"history": [
+                        {
+                            "ts": row["ts"], "callsign": row["callsign"],
+                            "freq_hz": row["freq_hz"], "mode": row["mode"],
+                            "band": row["band"], "bearing_deg": row["bearing_deg"],
+                            "note": row["note"],
+                        }
+                        for row in rows
+                    ]}
+                )
             else:
                 self._safe_send_error(404)
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path not in ("/api/autotune", "/api/filters", "/api/tune"):
+            if path not in ("/api/autotune", "/api/filters", "/api/tune", "/api/qso/history"):
                 self._safe_send_error(404)
                 return
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -177,6 +224,40 @@ def _make_handler(app_state: AppState):
                 payload = json.loads(raw or b"{}")
             except json.JSONDecodeError:
                 self._send_json({"error": "invalid JSON"}, status=400)
+                return
+
+            if path == "/api/qso/history":
+                callsign = payload.get("callsign")
+                freq_hz = payload.get("freq_hz")
+                mode = payload.get("mode")
+                band = payload.get("band")
+                note = payload.get("note", "")
+                valid = (
+                    isinstance(callsign, str) and bool(callsign.strip())
+                    and isinstance(freq_hz, (int, float)) and not isinstance(freq_hz, bool)
+                    and math.isfinite(freq_hz) and freq_hz > 0
+                    and isinstance(mode, str) and mode in SUPPORTED_MODES
+                    and isinstance(band, str) and band in SUPPORTED_BANDS
+                    and isinstance(note, str) and len(note) <= 500
+                )
+                if not valid:
+                    self._send_json({"error": "neplatný QSO záznam"}, status=400)
+                    return
+                with app_state.lock:
+                    candidate = next(
+                        (c for c in app_state.latest_candidates
+                         if c.callsign == callsign.strip().upper()
+                         and c.freq_hz == int(freq_hz) and c.mode == mode and c.band == band),
+                        None,
+                    )
+                    if candidate is None:
+                        self._send_json({"error": "QSO musí odpovídat aktuálnímu kandidátovi"}, status=409)
+                        return
+                    app_state.db.log_qso(
+                        callsign.strip().upper(), int(freq_hz), mode.strip(), band,
+                        candidate.bearing_deg, note.strip(),
+                    )
+                self._send_json({"ok": True}, status=201)
                 return
 
             if path == "/api/tune":
@@ -241,6 +322,9 @@ def _make_handler(app_state: AppState):
                     if "modes" in payload:
                         modes = [m for m in payload["modes"] if m in SUPPORTED_MODES]
                         app_state.config.modes = modes
+                    app_state.db.save_filter_preferences(
+                        app_state.config.bands, app_state.config.modes
+                    )
 
             self._send_json(_build_status(app_state))
 

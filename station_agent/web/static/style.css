@@ -57,6 +57,27 @@ h1 {
   font-size: 1.05rem;
 }
 
+.propagation-summary,
+.propagation-detail {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.propagation-bands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.75rem 0;
+}
+
+.propagation-band {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
 .filter-group {
   display: flex;
   flex-wrap: wrap;
@@ -79,6 +100,63 @@ h1 {
   flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
+}
+
+.autotune-mode-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.autotune-mode-label {
+  font-weight: 600;
+}
+
+.rocker-switch {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+}
+
+.rocker-switch label {
+  cursor: pointer;
+}
+
+.rocker-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rocker-switch span {
+  display: block;
+  min-width: 7rem;
+  padding: 0.55rem 0.85rem;
+  text-align: center;
+  font-weight: 700;
+  color: CanvasText;
+  background: Canvas;
+}
+
+.rocker-switch label + label span {
+  border-left: 1px solid var(--border);
+}
+
+.rocker-switch input:checked + span {
+  color: white;
+  background: #1976d2;
+}
+
+.rocker-switch input:focus-visible + span {
+  outline: 2px solid #1976d2;
+  outline-offset: -3px;
 }
 
 .decision {
@@ -194,4 +272,11 @@ tr.candidate-row.selected {
   text-align: center;
   opacity: 0.6;
   padding: 1.5rem;
+}
+
+.event-list {
+  display: grid;
+  gap: 0.35rem;
+  font-family: monospace;
+  font-size: 0.9rem;
 }

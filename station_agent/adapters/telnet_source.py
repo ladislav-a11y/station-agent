@@ -25,11 +25,12 @@ které:
 
 ``fetch()`` (volané z ``adapters/polling.py``) pouze vybere spoty
 nashromážděné od posledního volání -- vlastní síťová smyčka běží nezávisle
-na tom, jak často (nebo jestli vůbec) něco volá ``fetch()``. Dokud se
-adaptéru nikdy nepodařilo navázat spojení a naparsovat aspoň jeden reálný
-spot, ``fetch()`` vyhazuje ``SourceNotReadyError`` (GUI stav "pending").
-Jakmile jednou dorazí reálná data, další výpadky spojení se hlásí jako
-běžná výjimka (GUI stav "error") -- ne návrat k "pending".
+na tom, jak často (nebo jestli vůbec) něco volá ``fetch()``. Během výchozí
+tříminutové grace period vyhazuje ``SourceNotReadyError`` (GUI stav
+"pending"), aby měl server čas na připojení, login a první data. Potom je
+aktivní přihlášené spojení připravené i bez právě přijatého spotu; neúspěšné
+spojení je běžná výjimka (GUI stav "error"). Jakmile jednou dorazí reálná
+data, další výpadky se rovněž hlásí jako "error" -- ne návrat k "pending".
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ DEFAULT_CONNECT_TIMEOUT_S = 15.0
 DEFAULT_READ_TIMEOUT_S = 300.0
 DEFAULT_RECONNECT_INITIAL_SECONDS = 5.0
 DEFAULT_RECONNECT_MAX_SECONDS = 300.0
+DEFAULT_STARTUP_GRACE_SECONDS = 180.0
 
 
 class LiveTelnetSpotSource(SpotSource):
@@ -65,6 +67,7 @@ class LiveTelnetSpotSource(SpotSource):
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         reconnect_initial_seconds: float = DEFAULT_RECONNECT_INITIAL_SECONDS,
         reconnect_max_seconds: float = DEFAULT_RECONNECT_MAX_SECONDS,
+        startup_grace_seconds: float = DEFAULT_STARTUP_GRACE_SECONDS,
     ):
         self.host = host
         self.port = port
@@ -74,10 +77,13 @@ class LiveTelnetSpotSource(SpotSource):
         self.read_timeout_s = read_timeout_s
         self.reconnect_initial_seconds = reconnect_initial_seconds
         self.reconnect_max_seconds = reconnect_max_seconds
+        self.startup_grace_seconds = max(0.0, startup_grace_seconds)
 
         self._lock = threading.Lock()
         self._queue: deque[Spot] = deque()
         self._ever_received_data = False
+        self._connected = False
+        self._started_at: float | None = None
         self._last_error: str | None = None
         self._backoff_seconds = reconnect_initial_seconds
         self._stop_event = threading.Event()
@@ -94,6 +100,7 @@ class LiveTelnetSpotSource(SpotSource):
             raise SourceNotReadyError(f"{self.name}: host/port není nakonfigurován ({self.host!r}:{self.port!r})")
         if not self.callsign:
             raise SourceNotReadyError(f"{self.name}: station.callsign není nakonfigurován -- nutný pro přihlášení")
+        self._started_at = time.monotonic()
         self._thread = threading.Thread(target=self._run, name=f"station-agent-{self.name}", daemon=True)
         self._thread.start()
 
@@ -129,10 +136,21 @@ class LiveTelnetSpotSource(SpotSource):
             spots = list(self._queue)
             self._queue.clear()
             ever_received = self._ever_received_data
+            connected = self._connected
+            started_at = self._started_at
             error = self._last_error
         if not ever_received:
+            elapsed = 0.0 if started_at is None else time.monotonic() - started_at
+            if elapsed >= self.startup_grace_seconds:
+                if connected:
+                    return []
+                if error:
+                    raise ConnectionError(error)
             raise SourceNotReadyError(
-                error or f"{self.name}: čekám na první živá data z {self.host}:{self.port}"
+                error or (
+                    f"{self.name}: zdroj se spouští, čekám na spojení nebo první živá data "
+                    f"z {self.host}:{self.port}"
+                )
             )
         if error and not spots:
             raise ConnectionError(error)
@@ -164,10 +182,8 @@ class LiveTelnetSpotSource(SpotSource):
         sock = socket.create_connection((self.host, self.port), timeout=self.connect_timeout_s)
         with self._lock:
             self._sock = sock
-        file_obj = None
         try:
             sock.settimeout(self.read_timeout_s)
-            file_obj = sock.makefile("r", encoding="utf-8", errors="replace", newline="\n")
             sock.sendall(f"{self.callsign}\r\n".encode("ascii", errors="ignore"))
             if self.post_login_command:
                 sock.sendall(f"{self.post_login_command}\r\n".encode("ascii", errors="ignore"))
@@ -176,6 +192,7 @@ class LiveTelnetSpotSource(SpotSource):
             with self._lock:
                 self._backoff_seconds = self.reconnect_initial_seconds
                 self._last_error = None
+                self._connected = True
             buffer = ""
             while not self._stop_event.is_set():
                 data = sock.recv(4096)
@@ -204,14 +221,7 @@ class LiveTelnetSpotSource(SpotSource):
             raise ConnectionError(f"{self.name}: server {self.host}:{self.port} ukončil spojení")
         finally:
             with self._lock:
+                self._connected = False
                 if self._sock is sock:
                     self._sock = None
-            # POZOR: socket.makefile() interně inkrementuje refcount
-            # (_io_refs) podkladového socketu -- dokud se ``file_obj``
-            # výslovně nezavře, ``sock.close()`` níže NENÍ skutečný OS
-            # close (nepošle FIN druhé straně). ``file_obj`` je jinak jen
-            # lokální proměnná uvolněná až GC při návratu z této metody,
-            # což je pro deterministické/rychlé odpojení nespolehlivé.
-            if file_obj is not None:
-                file_obj.close()
             sock.close()

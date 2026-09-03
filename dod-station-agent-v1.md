@@ -56,7 +56,7 @@
 - [ ] Změna frekvence probíhá výhradně přes Hamlib/`rigctld`
 - [ ] Změna módu probíhá výhradně přes Hamlib/`rigctld`
 - [ ] V celém zdrojovém stromu neexistuje žádná PTT ani TX funkce (ověřeno testem)
-- [ ] Rotor není nikde programově ovládán — pouze se počítá a zobrazuje bearing
+- [ ] Anténní rotátor není nikde programově ovládán — pouze se počítá a zobrazuje bearing
 
 ## Log4OM2
 - [ ] Log4OM2 integrace pouze předvyplní záznam QSO (UDP prefill packet)

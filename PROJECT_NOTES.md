@@ -7,14 +7,6 @@
 * Shell: PowerShell
 * Python: 3.14.7
 
-## Pravidla práce
-
-* Vždy provádět jeden příkaz najednou.
-* Před úpravou souboru vytvořit zálohu.
-* Preferovat PowerShell úpravy přes List\[string] před složitými one-linery.
-* Neprovádět hromadné neověřené změny.
-* Po každé změně ověřit výsledek.
-
 ## Známé problémy
 
 ### PowerShell a YAML
@@ -64,4 +56,3 @@
 \- Spoty se převádí do interního modelu Spot.
 
 \- Kompletní testy: 192 passed.
-

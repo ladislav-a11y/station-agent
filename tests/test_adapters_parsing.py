@@ -142,7 +142,8 @@ PSKR_FIXTURE = """<?xml version="1.0"?>
 <receptionReports>
 <receptionReport senderCallsign="OK1ABC" receiverCallsign="W1AW"
                   frequency="14074000" mode="FT8"
-                  flowStartSeconds="1700000000" sNR="-10" />
+                  flowStartSeconds="1700000000" sNR="-10"
+                  senderLocator="JN79FG" />
 <receptionReport senderCallsign="INCOMPLETE" mode="FT8" />
 </receptionReports>
 """
@@ -159,6 +160,7 @@ class PSKReporterParsingTests(unittest.TestCase):
         self.assertEqual(spot.snr_db, -10.0)
         self.assertEqual(spot.spotter, "W1AW")
         self.assertEqual(spot.source, "pskreporter")
+        self.assertEqual(spot.locator, "JN79FG")
 
     def test_incomplete_entries_are_skipped(self):
         spots = parse_pskreporter_report(PSKR_FIXTURE)

@@ -5,7 +5,7 @@ Reverse Beacon Network (RBN), PSKReporteru a dalších budoucích zdrojů,
 spočítá transparentní skóre 0–100 pro každého kandidáta, spočítá směr
 (bearing) z tvého QTH a volitelně (v režimu AUTO TUNE) přeladí IC-7300 přes
 Hamlib/`rigctld` na nejlepší stanici. Nikdy nezasahuje do PTT/vysílání a
-nikdy neotáčí rotorem — pouze zobrazuje bearing k výpočtu.
+nikdy neovládá anténní rotátor — pouze zobrazuje vypočtený bearing.
 
 ## Bezpečnostní invarianty (nejde je vypnout konfigurací)
 
@@ -13,9 +13,9 @@ nikdy neotáčí rotorem — pouze zobrazuje bearing k výpočtu.
   nevyskytuje kód, který by uměl zapnout vysílání. Ověřuje to
   `tests/test_rig_safety.py` (grep na `ptt` case-insensitive + kontrola, že
   žádná třída rigu nemá metodu spojenou s vysíláním).
-- **Žádné ovládání rotoru.** Existuje pouze výpočet bearing (viz
-  `station_agent/bearing.py`) pro zobrazení v GUI. Žádný modul rotor
-  fyzicky neovládá.
+- **Žádné ovládání anténního rotátoru.** Existuje pouze výpočet bearing (viz
+  `station_agent/bearing.py`) pro zobrazení v GUI. Žádný modul anténu
+  fyzicky nenatáčí.
 - **Log4OM2 se jen předvyplňuje.** `station_agent/log4om.py` umí sestavit a
   poslat "prefill" packet, ale nikde neexistuje funkce, která by QSO
   automaticky uložila do deníku.
@@ -37,6 +37,14 @@ python -m station_agent --config config.yaml
 ```
 
 GUI pak najdeš na `http://127.0.0.1:8765` (port dle configu).
+
+`config.yaml` je v `.gitignore` a musí ho mít každý checkout vlastní. Pokud
+krok `cp config.example.yaml config.yaml` vynecháš, nebo bude výsledný
+`config.yaml` obsahovat neplatný zápis či hodnotu mimo povolený rozsah
+(např. `rig.mode` jiné než `mock`/`live`), Station Agent to teď nahlásí
+čitelnou chybou (v druhém případě s popisem, co přesně v configu nesedí) a
+skončí s nenulovým návratovým kódem (`station_agent/config.py::load_config`,
+`station_agent/cli.py::main`) — ne nezachyceným Python tracebackem.
 
 ## Instalace a spuštění na Windows 11 (krok za krokem)
 
@@ -194,7 +202,11 @@ bezpečnostní invarianty, které se nesmí porušit).
 | Adaptér | Parsování / logika | Živé připojení |
 |---|---|---|
 | Mock (offline testovací data) | ✅ funkční | — |
-| DX Cluster (telnet) | ✅ parser řádků otestovaný na fixture datech | ✅ **živě funkční** — `LiveTelnetSpotSource` (`station_agent/adapters/telnet_source.py`) otevře reálný TCP socket, přihlásí se callsignem a streamuje/parsuje řádky s vlastním reconnect/backoffem; `fetch()` hlásí `SourceNotReadyError` (GUI stav "pending"), dokud poprvé skutečně nedorazí reálný spot |
+| DX Cluster (telnet) | ✅ parser řádků otestovaný na fixture datech | ✅ **živě funkční** — `LiveTelnetSpotSource` (`station_agent/adapters/telnet_source.py`) otevře reálný TCP socket, přihlásí se callsignem a streamuje/parsuje řádky s vlastním reconnect/backoffem; při startu respektuje tříminutovou grace period |
+| DX Cluster — W3LPL | ✅ stejný produkční parser | ✅ `dxc.w3lpl.net:7373`, výchozí pojmenovaný zdroj `dx_cluster` |
+| DX Cluster — Hamserve | ✅ stejný produkční parser | ✅ živě ověřeno `dxc.hamserve.uk:7300`, zdroj `dx_cluster_hamserve`, včetně SSB spotu |
+| DX Cluster — EA7JXH | ✅ stejný produkční parser | ✅ živě ověřeno `dx.ea7jxh.eu:7300`, zdroj `dx_cluster_ea7jxh`, včetně SSB spotů |
+| DX Cluster — M0MHX | ✅ stejný produkční parser | ✅ živě ověřeno `dxc.m0mhx.uk:7300`, zdroj `dx_cluster_m0mhx`, včetně SSB spotu |
 | Reverse Beacon Network | ✅ parser řádků otestovaný na fixture datech | ✅ **živě funkční** — stejný `LiveTelnetSpotSource` klient jako DX Cluster výše, mířený na `telnet.reversebeacon.net:7000` |
 | PSKReporter | ✅ parser XML reportu otestovaný na fixture datech | ✅ **živě funkční** — `fetch()` reálně provádí HTTP GET na `query_url` (výchozí `retrieve.pskreporter.info/query`) a parsuje odpověď; síťová vrstva je otestovaná proti skutečnému lokálnímu HTTP serveru v `tests/test_adapters_live.py` |
 | Log4OM2 UDP prefill | ✅ sestavení payloadu otestované | ⏳ **pending verifikace** — odeslání UDP paketu je implementované, ale nebylo ověřeno proti běžící instanci Log4OM2 |
@@ -203,13 +215,35 @@ DX Cluster a RBN běží na sdíleném telnet klientovi (`station_agent/adapters
 vlastní daemon vlákno na zdroj, skutečný TCP socket, login callsignem
 (`station.callsign` z configu, nebo přepsatelné přes `sources.<zdroj>.callsign`),
 čtení řádek po řádku a nezávislý reconnect s exponenciálním backoffem --
-výpadek jednoho zdroje neovlivní ostatní. Dokud adaptér poprvé skutečně
-nenaváže spojení a nenaparsuje aspoň jeden reálný spot, `fetch()` hlásí
-`SourceNotReadyError` (GUI stav "pending"); pak už hlásí "ok"/"error" podle
-aktuálního stavu spojení, nikdy zpátky "pending". Žádný adaptér nevrací
+výpadek jednoho zdroje neovlivní ostatní. DX Cluster a RBN mají po prvním
+spuštění tříminutovou grace period: během ní se jejich připojení rozbíhá a
+stav "ok" se ještě neočekává. Po jejím uplynutí je aktivní přihlášené telnet
+spojení "ok" i v okamžiku, kdy zrovna nepřišel žádný spot; nedostupné spojení
+je "error". Po prvních reálných datech se další výpadky hlásí jako "error",
+nikdy zpátky "pending". Žádný adaptér nevrací
 vymyšlená/nafingovaná data tvářící se jako reálná odpověď (viz AGENTS.md
-pravidlo 6). V konfiguraci jsou i tak všechny živé zdroje defaultně
-`enabled: false` -- vždy explicitní volba uživatele (viz AGENTS.md pravidlo 4).
+pravidlo 6). V příkladové konfiguraci jsou všechny síťové zdroje záměrně
+`enabled: false`: uživatel si musí zvolit vlastní callsign a výslovně zapnout
+jen požadované endpointy; příklad tak po spuštění bez úprav nevytváří žádná
+externí síťová spojení.
+
+DX Cluster uzlů lze nakonfigurovat libovolný počet. První se obvykle jmenuje
+`sources.dx_cluster`, další musí mít jedinečné jméno začínající
+`dx_cluster_` (např. `dx_cluster_hamserve`). Každý uzel má vlastní připojení,
+frontu, reconnect a stav v `/api/status`; jeho konfigurační jméno se také
+zachová v `confirming_sources`, takže potvrzení od více uzlů zůstávají
+samostatnou evidencí.
+
+Distribuovaný příklad nabízí vedle původního `dxc.w3lpl.net:7373` tři
+defaultně vypnuté full-feed alternativy vhodné i pro SSB spoty:
+`dxc.hamserve.uk:7300`, `dx.ea7jxh.eu:7300` a `dxc.m0mhx.uk:7300`.
+Endpoint Hamserve a přihlášení callsignem dokumentuje přímo
+[DXSpider wiki](https://wiki.dxcluster.org/wiki/How_to_connect), EA7JXH svůj
+telnet endpoint uvádí na [webu clusteru](https://www.ea7jxh.eu/) a M0MHX
+publikuje telnet endpoint přímo na
+[webovém clusteru](https://dxc.m0mhx.uk/). Nejde o
+automaticky zapnutý failover: operátor může zapnout jeden nebo více uzlů
+podle polohy a každý zůstane samostatným zdrojem.
 
 Frekvence GUI refreshe (viz `web/static/app.js`, každých 5 s) je záměrně
 oddělená od frekvence reálných dotazů na živé zdroje jako PSKReporter --
@@ -226,3 +260,26 @@ Viz [config.example.yaml](config.example.yaml) — obsahuje QTH (locator nebo
 lat/lon), `rigctld` host/port, povolená pásma a módy, minimální skóre,
 AUTO TUNE, HOLD, minimální dobu držení, požadovaný rozdíl skóre a (pending)
 Log4OM2 endpoint.
+
+## Historie QSO, předvolby a notifikace
+
+GUI nabízí konfigurovatelné předvolby filtrů módů/pásem. Vybrané nastavení
+se lokálně ukládá do SQLite databáze a při dalším spuštění se automaticky
+obnoví. Vybraného kandidáta lze explicitním tlačítkem zapsat do lokální SQLite historie QSO
+včetně frekvence, módu, pásma a vypočteného bearingu. Tento krok nikdy
+nepotvrzuje ani neukládá záznam v Log4OM2.
+
+Band-opening notifikace vznikají při překročení konfigurovaného počtu
+odlišných stanic na pásmu. Od spuštění procesu se pro každé pásmo měří kladný
+přírůstek proti předchozímu cyklu a GUI drží pouze jedinou notifikaci s dosud
+největším přírůstkem. Historie QSO je viditelná přímo v GUI.
+
+## Propagation a debug skóre
+
+Při zapnuté sekci `propagation` se nejvýše jednou za hodinu načtou aktuální
+Kp a SFI z NOAA SWPC. Station Agent z nich, QTH lokátoru a lokálního
+slunečního času autonomně vytvoří transparentní výhled 0–1 pro každé
+podporované pásmo. Scoring síť nevolá; spotřebuje pouze tento hodinový
+snapshot. Aktuální Kp zůstává v pravém horním rohu GUI. Spuštění s
+`--verbose` vypíše při každém obnovení kandidátů celý propagation snapshot
+i všechny `ScoreReason` faktory každého kandidáta do terminálu/PowerShellu.

@@ -11,13 +11,14 @@ const MODE_LABELS = {
   OTHER_DIGITAL: "Other Digital",
 };
 const MODE_ORDER = ["SSB", "FT8", "FT4", "CW", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"];
-const BAND_ORDER = ["80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m"];
+const BAND_ORDER = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"];
 
 const state = {
   modes: new Set(MODE_ORDER),
   bands: new Set(BAND_ORDER),
   candidates: [],
   selected: null, // {callsign, freq_hz, mode} vybraného kandidáta pro NALADIT
+  presets: [],
 };
 
 function sameCandidateKey(a, b) {
@@ -58,12 +59,15 @@ function fmtAge(seconds) {
 
 function renderTuneControls() {
   const button = document.getElementById("tune-button");
+  const qsoButton = document.getElementById("qso-button");
   const selectedEl = document.getElementById("tune-selected");
   if (state.selected) {
     button.disabled = false;
+    qsoButton.disabled = false;
     selectedEl.textContent = `Vybráno: ${state.selected.callsign} -- ${(state.selected.freq_hz / 1e6).toFixed(3)} MHz ${state.selected.mode}`;
   } else {
     button.disabled = true;
+    qsoButton.disabled = true;
     selectedEl.textContent = "Nevybrán žádný kandidát.";
   }
 }
@@ -71,7 +75,14 @@ function renderTuneControls() {
 function selectCandidate(c) {
   state.selected = sameCandidateKey(state.selected, c)
     ? null
-    : { callsign: c.callsign, freq_hz: c.freq_hz, mode: c.mode };
+    : { callsign: c.callsign, freq_hz: c.freq_hz, mode: c.mode, band: c.band, bearing_deg: c.bearing_deg };
+  renderCandidates();
+  renderTuneControls();
+}
+
+function clearCandidateSelection() {
+  if (!state.selected) return;
+  state.selected = null;
   renderCandidates();
   renderTuneControls();
 }
@@ -103,7 +114,8 @@ function renderCandidates() {
     const row = document.createElement("tr");
     const isSelected = sameCandidateKey(state.selected, c);
     row.className = "candidate-row" + (isSelected ? " selected" : "");
-    const dxcc = c.dxcc ? `${c.dxcc.name} (${c.dxcc.continent})` : "?";
+    const country = c.country || (c.dxcc && c.dxcc.name) || "?";
+    const dxcc = c.dxcc ? `${country} (${c.dxcc.continent})` : country;
     const bearing = c.bearing_deg != null ? `${c.bearing_deg}° / ${c.distance_km ?? "?"} km` : "-";
     const sources = c.confirming_sources.join(", ");
     const scoreTotal = c.score ? c.score.total : 0;
@@ -154,8 +166,30 @@ async function postFilters() {
 }
 
 function onFilterChange() {
+  document.getElementById("filter-preset").value = "";
   renderCandidates();
   postFilters();
+}
+
+function buildPresetSelect(presets) {
+  state.presets = presets || [];
+  const select = document.getElementById("filter-preset");
+  for (const preset of state.presets) {
+    const option = document.createElement("option");
+    option.value = preset.key;
+    option.textContent = preset.label;
+    select.appendChild(option);
+  }
+  select.addEventListener("change", () => {
+    const preset = state.presets.find((p) => p.key === select.value);
+    if (!preset) return;
+    state.bands = new Set(preset.bands);
+    state.modes = new Set(preset.modes);
+    buildFilterCheckboxes("mode-filters", MODE_ORDER, MODE_LABELS, state.modes, onFilterChange);
+    buildFilterCheckboxes("band-filters", BAND_ORDER, null, state.bands, onFilterChange);
+    renderCandidates();
+    postFilters();
+  });
 }
 
 async function refreshCandidates() {
@@ -177,7 +211,39 @@ function renderRigStatus(status) {
     return;
   }
   const call = rig.callsign ? ` -- ${rig.callsign}` : "";
-  el.textContent = `rig (${status.rig_mode}): ${(rig.freq_hz / 1e6).toFixed(3)} MHz ${rig.mode}${call}`;
+  const path = rig.bearing_deg == null ? "" : ` -- ${rig.bearing_deg.toFixed(0)}° / ${rig.distance_km == null ? "?" : rig.distance_km.toFixed(0)} km`;
+  el.textContent = `rig (${status.rig_mode}): ${(rig.freq_hz / 1e6).toFixed(3)} MHz ${rig.mode}${call}${path}`;
+}
+
+function renderPropagation(status) {
+  const el = document.getElementById("propagation-status");
+  const p = status.propagation || {};
+  el.textContent = p.kp == null ? "Kp: nedostupné" : `Kp: ${p.kp.toFixed(1)} (${p.source || "zdroj"})`;
+
+  const summary = document.getElementById("propagation-summary");
+  const bands = document.getElementById("propagation-bands");
+  const detail = document.getElementById("propagation-detail");
+  if (p.kp == null || p.solar_flux == null) {
+    summary.textContent = "Aktuální Kp a SFI nejsou dostupné; scoring používá pozorovanou aktivitu spotů.";
+    bands.replaceChildren();
+    detail.textContent = "";
+    return;
+  }
+
+  const observed = p.observed_at == null
+    ? "čas neznámý"
+    : new Date(p.observed_at * 1000).toLocaleString("cs-CZ");
+  summary.textContent = `Kp ${p.kp.toFixed(1)} • SFI ${p.solar_flux.toFixed(1)} • ${p.source || "zdroj neznámý"} • ${observed}`;
+  bands.replaceChildren();
+  Object.entries(p.band_quality || {}).forEach(([band, quality]) => {
+    const item = document.createElement("span");
+    item.className = "propagation-band";
+    const percent = Math.round(Number(quality) * 100);
+    item.textContent = `${band}: ${percent} %`;
+    item.title = `Transparentní hodinový výhled pro ${band}: ${percent} %`;
+    bands.appendChild(item);
+  });
+  detail.textContent = p.explanation || "";
 }
 
 const SOURCE_STATUS_LABELS = {
@@ -226,36 +292,36 @@ function fillAutotuneForm(status) {
 }
 
 // AUTO TUNE a HOLD jsou vzájemně výlučné (backend to vynucuje taky, viz
-// POST /api/autotune) -- checkboxy i odpočet HOLD se synchronizují se
+// POST /api/autotune) -- checkboxy i odpočet AUTO TUNE se synchronizují se
 // stavem backendu při každém refreshi statusu i hned po NALADIT/uložení
 // formuláře, aby GUI nikdy neukazovalo stav, který neodpovídá backendu
 // (viz BUG P4/P5 -- ruční NALADIT vypíná AUTO TUNE a zapíná HOLD).
-let holdCountdownBase = null; // {remainingSeconds, capturedAtMs}
+let autotuneCountdownBase = null; // {remainingSeconds, capturedAtMs}
 
 function renderAutotuneState(status) {
   document.getElementById("at-enabled").checked = status.autotune.enabled;
   document.getElementById("at-hold").checked = status.autotune.hold;
-  if (status.autotune.hold && status.autotune.hold_remaining_seconds != null) {
-    holdCountdownBase = { remainingSeconds: status.autotune.hold_remaining_seconds, capturedAtMs: Date.now() };
+  if (status.autotune.enabled && status.autotune.autotune_remaining_seconds != null) {
+    autotuneCountdownBase = { remainingSeconds: status.autotune.autotune_remaining_seconds, capturedAtMs: Date.now() };
   } else {
-    holdCountdownBase = null;
+    autotuneCountdownBase = null;
   }
   renderHoldCountdown();
 }
 
 function renderHoldCountdown() {
   const el = document.getElementById("at-hold-countdown");
-  if (!document.getElementById("at-hold").checked) {
-    el.textContent = "";
-    return;
-  }
-  if (!holdCountdownBase) {
+  if (document.getElementById("at-hold").checked) {
     el.textContent = "HOLD aktivní";
     return;
   }
-  const elapsedSeconds = (Date.now() - holdCountdownBase.capturedAtMs) / 1000;
-  const remaining = Math.max(0, holdCountdownBase.remainingSeconds - elapsedSeconds);
-  el.textContent = `HOLD aktivní -- zbývá ${fmtAge(remaining)}`;
+  if (!document.getElementById("at-enabled").checked || !autotuneCountdownBase) {
+    el.textContent = "";
+    return;
+  }
+  const elapsedSeconds = (Date.now() - autotuneCountdownBase.capturedAtMs) / 1000;
+  const remaining = Math.max(0, autotuneCountdownBase.remainingSeconds - elapsedSeconds);
+  el.textContent = `Další AUTO TUNE za ${fmtAge(remaining)}`;
 }
 
 let statusLoaded = false;
@@ -266,6 +332,7 @@ async function refreshStatus() {
     const status = await res.json();
     renderRigStatus(status);
     renderSourcesStatus(status);
+    renderPropagation(status);
     renderDecision(status);
     renderAutotuneState(status);
     if (!statusLoaded) {
@@ -274,6 +341,7 @@ async function refreshStatus() {
       buildFilterCheckboxes("mode-filters", MODE_ORDER, MODE_LABELS, state.modes, onFilterChange);
       buildFilterCheckboxes("band-filters", BAND_ORDER, null, state.bands, onFilterChange);
       fillAutotuneForm(status);
+      buildPresetSelect(status.presets);
       statusLoaded = true;
       renderCandidates();
     }
@@ -305,6 +373,8 @@ document.getElementById("tune-button").addEventListener("click", async () => {
     renderRigStatus(status);
     renderDecision(status);
     renderAutotuneState(status);
+    state.selected = null;
+    renderCandidates();
     const reason = status.last_decision ? status.last_decision.reason : status.error;
     renderTuneResult(reason || (res.ok ? "Naladěno." : "Naladění selhalo."), !res.ok);
   } catch (err) {
@@ -315,8 +385,57 @@ document.getElementById("tune-button").addEventListener("click", async () => {
   }
 });
 
-document.getElementById("autotune-form").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
+document.getElementById("qso-button").addEventListener("click", async () => {
+  const candidate = state.selected;
+  if (!candidate) return;
+  const res = await fetch("/api/qso/history", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(candidate),
+  });
+  renderTuneResult(res.ok ? `QSO ${candidate.callsign} bylo zapsáno do lokální historie.` : "Zápis QSO selhal.", !res.ok);
+  if (res.ok) refreshQsoHistory();
+});
+
+function formatTimestamp(ts) {
+  return new Date(ts * 1000).toLocaleString("cs-CZ");
+}
+
+async function refreshNotifications() {
+  try {
+    const data = await (await fetch("/api/notifications")).json();
+    const el = document.getElementById("notifications");
+    el.replaceChildren();
+    if (!data.band_openings.length) {
+      el.textContent = "Žádné notifikace.";
+      return;
+    }
+    const event = data.band_openings[0];
+    const item = document.createElement("div");
+    item.textContent = `${formatTimestamp(event.ts)} -- ${event.band}: ${event.reason || `nárůst o ${event.station_count_change} na ${event.station_count} odlišných stanic`}`;
+    el.appendChild(item);
+  } catch (err) { console.error("refreshNotifications selhalo", err); }
+}
+
+async function refreshQsoHistory() {
+  try {
+    const data = await (await fetch("/api/qso/history")).json();
+    const el = document.getElementById("qso-history");
+    el.replaceChildren();
+    if (!data.history.length) {
+      el.textContent = "Historie je prázdná.";
+      return;
+    }
+    for (const qso of data.history) {
+      const item = document.createElement("div");
+      const bearing = qso.bearing_deg == null ? "bearing neznámý" : `bearing ${qso.bearing_deg.toFixed(1)}°`;
+      item.textContent = `${formatTimestamp(qso.ts)} -- ${qso.callsign}, ${(qso.freq_hz / 1e6).toFixed(3)} MHz ${qso.mode}, ${qso.band}, ${bearing}`;
+      el.appendChild(item);
+    }
+  } catch (err) { console.error("refreshQsoHistory selhalo", err); }
+}
+
+async function updateAutotune() {
   const payload = {
     enabled: document.getElementById("at-enabled").checked,
     hold: document.getElementById("at-hold").checked,
@@ -325,14 +444,15 @@ document.getElementById("autotune-form").addEventListener("submit", async (ev) =
     min_score_delta: Number(document.getElementById("at-min-delta").value),
   };
   const res = await fetch("/api/autotune", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
   });
   const status = await res.json();
-  renderRigStatus(status);
-  renderDecision(status);
-  renderAutotuneState(status);
+  renderRigStatus(status); renderDecision(status); renderAutotuneState(status);
+}
+
+document.getElementById("autotune-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  await updateAutotune();
 });
 
 // Klient navíc vynucuje výlučnost hned při klikání (backend viz
@@ -340,15 +460,29 @@ document.getElementById("autotune-form").addEventListener("submit", async (ev) =
 // zaškrtnutí jednoho přepínače hned v prohlížeči odškrtne ten druhý, ať
 // operátor nikdy neodešle formulář s oběma zapnutými.
 document.getElementById("at-enabled").addEventListener("change", (ev) => {
-  if (ev.target.checked) document.getElementById("at-hold").checked = false;
+  if (!ev.target.checked) return;
+  document.getElementById("at-hold").checked = false;
+  // Návrat k automatickému režimu zároveň obnoví výchozí rozložení
+  // seznamu: ruční výběr ani jeho rozbalené bodové detaily už nejsou aktivní.
+  clearCandidateSelection();
+  updateAutotune();
 });
 document.getElementById("at-hold").addEventListener("change", (ev) => {
-  if (ev.target.checked) document.getElementById("at-enabled").checked = false;
+  if (!ev.target.checked) return;
+  document.getElementById("at-enabled").checked = false;
   renderHoldCountdown();
+  updateAutotune();
 });
+for (const id of ["at-min-score", "at-min-hold", "at-min-delta"]) {
+  document.getElementById(id).addEventListener("change", updateAutotune);
+}
 
 refreshStatus();
 refreshCandidates();
+refreshNotifications();
+refreshQsoHistory();
 setInterval(refreshStatus, 5000);
 setInterval(refreshCandidates, 5000);
+setInterval(refreshNotifications, 15000);
+setInterval(refreshQsoHistory, 15000);
 setInterval(renderHoldCountdown, 1000);

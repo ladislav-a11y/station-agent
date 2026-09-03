@@ -68,6 +68,7 @@ def parse_pskreporter_report(xml_text: str) -> list[Spot]:
                 source="pskreporter",
                 snr_db=float(snr_raw) if snr_raw not in (None, "") else None,
                 spotter=elem.get("receiverCallsign", "") or "",
+                locator=elem.get("senderLocator") or None,
             )
         )
     return spots

@@ -13,9 +13,13 @@ def candidate_to_dict(candidate: Candidate) -> dict:
         "freq_mhz": round(candidate.freq_hz / 1_000_000, 6),
         "mode": candidate.mode,
         "band": candidate.band,
+        "country": candidate.country,
+        "locator": candidate.locator,
         "dxcc": (
             {
                 "name": candidate.dxcc.name,
+                "country": candidate.dxcc.name,
+                "prefix": candidate.dxcc.prefix,
                 "continent": candidate.dxcc.continent,
                 "cq_zone": candidate.dxcc.cq_zone,
             }
@@ -24,6 +28,7 @@ def candidate_to_dict(candidate: Candidate) -> dict:
         ),
         "age_seconds": round(candidate.age_seconds, 1),
         "confirming_sources": sorted(candidate.confirming_sources),
+        "spotters": sorted(candidate.spotters),
         "best_snr_db": candidate.best_snr_db,
         "bearing_deg": (round(candidate.bearing_deg, 1) if candidate.bearing_deg is not None else None),
         "distance_km": (round(candidate.distance_km, 0) if candidate.distance_km is not None else None),
@@ -55,6 +60,8 @@ def rig_state_to_dict(state: RigState | None) -> dict | None:
         "callsign": state.callsign,
         "tuned_at": state.tuned_at,
         "score": state.score,
+        "bearing_deg": state.bearing_deg,
+        "distance_km": state.distance_km,
     }
 
 

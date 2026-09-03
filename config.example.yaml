@@ -21,7 +21,9 @@ rig:
 
 # Povolená pásma pro zobrazení kandidátů a AUTO TUNE.
 bands:
+  - "160m"
   - "80m"
+  - "60m"
   - "40m"
   - "30m"
   - "20m"
@@ -29,6 +31,7 @@ bands:
   - "15m"
   - "12m"
   - "10m"
+  - "6m"
 
 # Povolené módy pro zobrazení kandidátů a AUTO TUNE.
 modes:
@@ -47,10 +50,17 @@ scoring:
   spot_max_age_minutes: 15
   # Váhy jednotlivých faktorů skóre (musí dát dohromady 100).
   weights:
-    freshness: 25
-    sources: 20
-    needed_dxcc: 35
-    signal: 20
+    freshness: 15
+    sources: 15
+    needed_dxcc: 25
+    signal: 10
+    # Kolik nezávislých spotterů/skimmerů stanici potvrdilo.
+    reliability: 10
+    # Hodinový výhled pro pásmo z aktuálního NOAA Kp/SFI, QTH lokátoru a
+    # lokálního slunečního času; při nedostupnosti fallback na aktivitu spotů.
+    propagation: 15
+    # Vzdálenost od nakonfigurovaného QTH (dál = víc "DX").
+    path_dx: 10
 
 autotune:
   enabled: false
@@ -68,15 +78,17 @@ sources:
     enabled: true
   dx_cluster:
     # Živě funkční adaptér (telnet: TCP spojení, login callsignem, čtení a
-    # parsování řádků) -- viz README "Stav externích zdrojů". GUI hlásí
-    # "pending", dokud se poprvé skutečně nepřipojí a nenaparsuje reálný
-    # spot; teprve pak "ok"/"error" podle aktuálního stavu spojení.
-    # I tak je defaultně vypnutý: live zdroje vyžadují explicitní volbu
-    # uživatele (viz AGENTS.md pravidlo 4). Vyber si geograficky bližší
-    # veřejný cluster, pokud chceš nižší latenci spotů.
+    # parsování řádků) -- viz README "Stav externích zdrojů". GUI během
+    # startovní grace period hlásí "pending"; potom "ok"/"error" podle
+    # aktuálního stavu přihlášeného spojení.
+    # Je defaultně vypnutý, aby example config bez výslovné volby uživatele
+    # a jeho skutečného callsignu nevytvářel externí síťová spojení. Vyber si
+    # geograficky bližší veřejný cluster, pokud chceš nižší latenci spotů.
     enabled: false
     host: "dxc.w3lpl.net"
     port: 7373
+    # První 3 minuty je stav "pending", aby měl telnet zdroj čas na rozběh.
+    # startup_grace_seconds: 180
     # Volitelně jiný callsign pro přihlášení než station.callsign výše.
     # callsign: "OK1EXAMPLE"
   rbn:
@@ -85,6 +97,7 @@ sources:
     enabled: false
     host: "telnet.reversebeacon.net"
     port: 7000
+    # startup_grace_seconds: 180
   pskreporter:
     # Živě funkční adaptér (HTTP GET + XML) -- viz README "Stav externích
     # zdrojů". I tak je defaultně vypnutý: live zdroje vyžadují explicitní
@@ -94,6 +107,25 @@ sources:
     # Volitelné další query parametry (např. senderCallsign, flowStartSeconds)
     # -- viz https://www.pskreporter.info/pskdev.html
     # timeout_s: 15
+
+  # Ověřené veřejné alternativy s běžnými DX spoty včetně SSB. Jsou vypnuté
+  # ze stejného důvodu jako primární uzel: uživatel musí zvolit callsign a
+  # endpointy výslovně zapnout. Další uzly
+  # pojmenuj prefixem "dx_cluster_". Počet není omezený a každý uzel má
+  # vlastní spojení, frontu i stav; jméno se zachová jako identita zdroje.
+  # Zdroje endpointů jsou uvedené v README.
+  dx_cluster_hamserve:
+    enabled: false
+    host: "dxc.hamserve.uk"
+    port: 7300
+  dx_cluster_ea7jxh:
+    enabled: false
+    host: "dx.ea7jxh.eu"
+    port: 7300
+  dx_cluster_m0mhx:
+    enabled: false
+    host: "dxc.m0mhx.uk"
+    port: 7300
 
 log4om:
   # Log4OM2 integrace pouze PŘEDVYPLŇUJE řádek v deníku, nikdy neukládá QSO
@@ -119,3 +151,45 @@ polling:
   source_interval_seconds: 60
   # Horní strop pro exponenciální backoff po opakovaných HTTP 429 odpovědích.
   source_backoff_max_seconds: 1800
+
+propagation:
+  # Nejvýše jednou za hodinu načte aktuální Kp a SFI z NOAA SWPC a připraví
+  # transparentní výhled pro jednotlivá pásma vzhledem ke station.qth_locator.
+  enabled: true
+  refresh_seconds: 3600
+
+# Pojmenované předvolby filtrů módů/pásem pro rychlý výběr v GUI -- čistě
+# lokální pohodlí, žádný vliv na rig/AUTO TUNE mimo to, co už dělá
+# POST /api/filters. Pokud sekci vynecháš, použijí se vestavěné výchozí
+# předvolby (Vše/Jen SSB/Jen CW/Jen digi).
+presets:
+  all:
+    label: "Vše"
+    bands: ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
+    modes: ["SSB", "FT8", "FT4", "CW", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"]
+  ssb:
+    label: "Jen SSB"
+    bands: ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
+    modes: ["SSB"]
+  cw:
+    label: "Jen CW"
+    bands: ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
+    modes: ["CW"]
+  digi:
+    label: "Jen digi"
+    bands: ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
+    modes: ["FT8", "FT4", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"]
+
+notifications:
+  # Band-opening notifikace -- lokálně odvozené z počtu odlišných stanic
+  # aktuálně viditelných na stejném pásmu (stejný signál jako scoring.py
+  # propagation faktor), žádné externí solar/K-index API se nevolá.
+  enabled: true
+  # Kolik odlišných stanic na pásmu už považujeme za "otevřené pásmo".
+  min_distinct_stations: 5
+  # Zachováno pro kompatibilitu starších configů; při jediném průběžném
+  # maximu se samostatný cooldown neuplatňuje.
+  cooldown_minutes: 30
+  # Zachováno pro kompatibilitu starších configů; GUI vždy obsahuje nejvýše
+  # jednu notifikaci.
+  max_per_hour: 10

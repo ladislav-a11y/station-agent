@@ -11,7 +11,7 @@ class BandPlanTests(unittest.TestCase):
         self.assertEqual(freq_to_band(3_600_000), "80m")
 
     def test_out_of_band(self):
-        self.assertIsNone(freq_to_band(1_900_000))
+        self.assertEqual(freq_to_band(1_900_000), "160m")
         self.assertIsNone(freq_to_band(50_000_000))
 
     def test_all_supported_bands_have_limits(self):

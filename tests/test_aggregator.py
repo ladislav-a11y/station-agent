@@ -3,7 +3,13 @@ import unittest
 
 from station_agent.adapters.dx_cluster import DXClusterAdapter
 from station_agent.adapters.mock import MockAdapter
-from station_agent.aggregator import Aggregator, attach_dxcc_and_bearing, group_spots_into_candidates
+from station_agent.aggregator import (
+    Aggregator,
+    attach_dxcc_and_bearing,
+    attach_scores,
+    band_activity,
+    group_spots_into_candidates,
+)
 from station_agent.db import Database
 from station_agent.models import Spot
 from station_agent.scoring import DEFAULT_WEIGHTS, ScoringConfig
@@ -31,6 +37,29 @@ class GroupingTests(unittest.TestCase):
         candidates = group_spots_into_candidates(spots)
         self.assertEqual(len(candidates), 2)
 
+    def test_spotters_are_collected_across_merged_spots(self):
+        now = time.time()
+        spots = [
+            Spot(
+                callsign="OK1ABC",
+                freq_hz=14_195_000,
+                mode="SSB",
+                timestamp=now,
+                source="mock",
+                spotter="OK1KT",
+            ),
+            Spot(
+                callsign="OK1ABC",
+                freq_hz=14_195_100,
+                mode="SSB",
+                timestamp=now + 5,
+                source="dx_cluster",
+                spotter="DL2ABC",
+            ),
+        ]
+        candidates = group_spots_into_candidates(spots)
+        self.assertEqual(candidates[0].spotters, {"OK1KT", "DL2ABC"})
+
     def test_best_snr_is_max_of_group(self):
         now = time.time()
         spots = [
@@ -51,6 +80,58 @@ class DxccBearingTests(unittest.TestCase):
         self.assertEqual(candidates[0].dxcc.name, "Japan")
         self.assertIsNotNone(candidates[0].bearing_deg)
         self.assertIsNotNone(candidates[0].distance_km)
+
+    def test_fills_missing_country_from_callsign_prefix(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock")]
+        )
+        attach_dxcc_and_bearing(candidates, qth_latlon=None)
+        self.assertEqual(candidates[0].country, "Japan")
+
+    def test_unknown_prefix_keeps_country_missing(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="QQ0XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock")]
+        )
+        attach_dxcc_and_bearing(candidates, qth_latlon=None)
+        self.assertIsNone(candidates[0].country)
+
+    def test_preserves_supplied_country_and_path(self):
+        now = time.time()
+        candidates = group_spots_into_candidates([
+            Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now,
+                 source="mock", country="Own evidence", bearing_deg=12.0, distance_km=345.0)
+        ])
+        attach_dxcc_and_bearing(candidates, qth_latlon=(50.0755, 14.4378))
+        self.assertEqual(candidates[0].country, "Own evidence")
+        self.assertEqual(candidates[0].bearing_deg, 12.0)
+        self.assertEqual(candidates[0].distance_km, 345.0)
+
+    def test_station_locator_is_preferred_for_missing_path(self):
+        now = time.time()
+        candidates = group_spots_into_candidates([
+            Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now,
+                 source="mock", locator="JN79FG")
+        ])
+        with self.assertNoLogs("station_agent.aggregator", level="WARNING"):
+            attach_dxcc_and_bearing(candidates, qth_latlon=(50.0755, 14.4378))
+        self.assertLess(candidates[0].distance_km, 100)
+
+    def test_invalid_source_locator_is_preserved_and_falls_back_to_dxcc(self):
+        now = time.time()
+        candidates = group_spots_into_candidates([
+            Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now,
+                 source="pskreporter", locator="not-a-grid")
+        ])
+
+        with self.assertLogs("station_agent.aggregator", level="WARNING") as captured:
+            attach_dxcc_and_bearing(candidates, qth_latlon=(50.0755, 14.4378))
+
+        self.assertEqual(candidates[0].locator, "NOT-A-GRID")
+        self.assertIsNotNone(candidates[0].bearing_deg)
+        self.assertIsNotNone(candidates[0].distance_km)
+        self.assertIn("referenční bod DXCC", captured.output[0])
 
     def test_no_bearing_without_qth(self):
         now = time.time()
@@ -88,6 +169,60 @@ class AggregatorIntegrationTests(unittest.TestCase):
         candidates = aggregator.build_candidates()
         scores = [c.score.total for c in candidates]
         self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_build_candidates_with_valid_station_locator_does_not_warn(self):
+        now = time.time()
+        source = MockAdapter(
+            [
+                Spot(
+                    callsign="JA1XYZ",
+                    freq_hz=14_195_000,
+                    mode="SSB",
+                    timestamp=now,
+                    source="mock",
+                    locator="JN79FG",
+                )
+            ]
+        )
+        aggregator = Aggregator(
+            [source], self.db, self.scoring_cfg, qth_latlon=(50.0755, 14.4378)
+        )
+        aggregator.poll_once(now=now)
+
+        with self.assertNoLogs("station_agent.aggregator", level="WARNING"):
+            candidates = aggregator.build_candidates(now=now)
+
+        self.assertEqual(candidates[0].locator, "JN79FG")
+        self.assertLess(candidates[0].distance_km, 100)
+
+    def test_band_activity_counts_distinct_callsigns_per_band(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [
+                Spot(callsign="OK1ABC", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock"),
+                Spot(callsign="JA1XYZ", freq_hz=14_074_000, mode="FT8", timestamp=now, source="mock"),
+                Spot(callsign="ZS6DEF", freq_hz=7_030_000, mode="CW", timestamp=now, source="mock"),
+            ]
+        )
+        activity = band_activity(candidates)
+        self.assertEqual(activity, {"20m": 2, "40m": 1})
+
+    def test_attach_scores_gives_busier_band_higher_propagation_points(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [
+                Spot(callsign="OK1ABC", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock"),
+                Spot(callsign="JA1XYZ", freq_hz=14_074_000, mode="FT8", timestamp=now, source="mock"),
+                Spot(callsign="ZS6DEF", freq_hz=7_030_000, mode="CW", timestamp=now, source="mock"),
+            ]
+        )
+        attach_dxcc_and_bearing(candidates, qth_latlon=(50.0, 14.0))
+        attach_scores(candidates, self.scoring_cfg, self.db, now=now)
+        busy_band = next(c for c in candidates if c.band == "20m")
+        quiet_band = next(c for c in candidates if c.band == "40m")
+        busy_reason = next(r for r in busy_band.score.reasons if r.factor == "propagation")
+        quiet_reason = next(r for r in quiet_band.score.reasons if r.factor == "propagation")
+        self.assertGreaterEqual(busy_reason.points, quiet_reason.points)
 
     def test_worked_dxcc_reduces_needed_score(self):
         aggregator = Aggregator([MockAdapter()], self.db, self.scoring_cfg, qth_latlon=(50.0, 14.0))

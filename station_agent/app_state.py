@@ -8,11 +8,13 @@ import logging
 import threading
 import time
 
-from station_agent.aggregator import Aggregator
+from station_agent.aggregator import Aggregator, band_activity
 from station_agent.autotune import AutoTuneEngine, TuneDecision, apply_decision
 from station_agent.config import AppConfig
 from station_agent.db import Database
 from station_agent.models import Candidate, RigState
+from station_agent.notifications import BandOpeningTracker
+from station_agent.propagation import PropagationService
 from station_agent.rig.base import RigControl
 
 logger = logging.getLogger(__name__)
@@ -30,23 +32,93 @@ class AppState:
         self.db = db
         self.rig = rig
         self.aggregator = aggregator
+        self.propagation = PropagationService(
+            config.station.qth_locator, config.propagation.refresh_seconds,
+            kp_url=config.propagation.kp_url, sfi_url=config.propagation.sfi_url,
+        ) if config.propagation.enabled else None
         self.autotune_engine = AutoTuneEngine(config.autotune, config.scoring.min_score)
         self.current_rig_state: RigState | None = None
         self.latest_candidates: list[Candidate] = []
         self.last_decision: TuneDecision | None = None
+        self.band_opening_tracker = BandOpeningTracker(
+            config.notifications,
+        )
         self.lock = threading.RLock()
 
     def refresh_candidates(self, now: float | None = None) -> list[Candidate]:
         now = time.time() if now is None else now
         with self.lock:
             self.aggregator.poll_once(now=now)
-            candidates = self.aggregator.build_candidates(
-                allowed_bands=set(self.config.bands),
-                allowed_modes=set(self.config.modes),
-                now=now,
-            )
+            # Bez pravidelného mazání starých spotů tabulka `spots` roste bez
+            # omezení -- žádný jiný kód v aplikaci staré řádky nečte
+            # (candidate se staví jen z okna spot_max_age_minutes, viz
+            # aggregator.build_candidates), takže je bezpečné mazat všechno
+            # mimo toto okno při každém refresh cyklu. Bez tohoto volání
+            # DB reálně naroste na stovky MB/miliony řádků během dní
+            # nepřetržitého provozu, což zpomalí každý poll cyklus i start
+            # (refresh_candidates běží synchronně před spuštěním web
+            # serveru, viz cli.py).
+            self.db.purge_older_than(self.config.scoring.spot_max_age_minutes * 60, now=now)
+            if self.propagation is None:
+                context = None
+            else:
+                refresh_if_due = getattr(self.propagation, "refresh_if_due", None)
+                context = (
+                    refresh_if_due(now)
+                    if refresh_if_due is not None
+                    else self.propagation.context
+                )
+            self.aggregator.propagation = context
+            # Notifikace jsou vlastností živých zdrojů, ne GUI filtru.
+            all_candidates = self.aggregator.build_candidates(now=now)
+            candidates = [
+                c for c in all_candidates
+                if c.band in self.config.bands and c.mode in self.config.modes
+            ]
             self.latest_candidates = candidates
+            if context is None:
+                logger.debug("propagation snapshot: nedostupný")
+            else:
+                qualities = ", ".join(
+                    f"{band}={quality:.3f}" for band, quality in context.band_quality.items()
+                )
+                logger.debug(
+                    "propagation snapshot: source=%s observed_at=%.0f kp=%s sfi=%s qth=%s "
+                    "model={%s} explanation=%s",
+                    context.source, context.observed_at, context.kp, context.solar_flux,
+                    context.qth_locator, qualities, context.explanation,
+                )
+            for candidate in candidates:
+                logger.debug(
+                    "score %s %s %.3f MHz: total=%s factors=%s propagation=%s",
+                    candidate.callsign, candidate.band, candidate.freq_hz / 1_000_000,
+                    candidate.score.total if candidate.score else None,
+                    "; ".join(f"{r.factor}={r.points}/{r.max_points} ({r.detail})"
+                               for r in (candidate.score.reasons if candidate.score else [])),
+                    context,
+                )
+            self._check_band_openings(all_candidates, now=now)
             return candidates
+
+    def _check_band_openings(self, candidates: list[Candidate], now: float) -> None:
+        """Zavolá BandOpeningTracker nad úplnou aktivitou zdrojů,
+        jakou vidí i scoring.py _propagation_reason (viz
+        aggregator.band_activity). Nového vítěze uloží do DB jako auditní
+        historii; API zobrazuje pouze tracker.best_event aktuálního běhu."""
+        activity = band_activity(candidates)
+        events = self.band_opening_tracker.check(activity, now=now)
+        if events:
+            # Tracker vrací jen nového vítěze: jedinou největší změnu od
+            # spuštění této instance station agenta.
+            event = events[0]
+            propagation = self.propagation.context if self.propagation else None
+            weather = (
+                f"aktuální Kp {propagation.kp:.1f}"
+                if propagation is not None and propagation.kp is not None
+                else "space-weather data nejsou dostupná"
+            )
+            reason = f"{event.reason}; {weather}"
+            self.db.log_band_opening(event.band, event.station_count, event.ts, reason)
 
     def run_autotune_cycle(self, now: float | None = None) -> TuneDecision:
         now = time.time() if now is None else now

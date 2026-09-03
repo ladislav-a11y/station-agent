@@ -14,11 +14,12 @@ from collections import defaultdict
 
 from station_agent.adapters.base import SpotSource
 from station_agent.adapters.polling import DEFAULT_BACKOFF_MAX_SECONDS, PolledSource
-from station_agent.bearing import bearing_and_distance
+from station_agent.bearing import bearing_and_distance, maidenhead_to_latlon
 from station_agent.config import ScoringConfig
 from station_agent.db import Database
 from station_agent.dxcc import callsign_to_dxcc
 from station_agent.models import Candidate, Spot
+from station_agent.propagation import PropagationContext
 from station_agent.scoring import score_candidate
 
 logger = logging.getLogger(__name__)
@@ -113,6 +114,10 @@ def group_spots_into_candidates(
             cluster.sort(key=lambda s: s.timestamp)
             latest = cluster[-1]
             snr_values = [s.snr_db for s in cluster if s.snr_db is not None]
+            latest_with_country = next((s for s in reversed(cluster) if s.country), None)
+            latest_with_locator = next((s for s in reversed(cluster) if s.locator), None)
+            latest_with_bearing = next((s for s in reversed(cluster) if s.bearing_deg is not None), None)
+            latest_with_distance = next((s for s in reversed(cluster) if s.distance_km is not None), None)
             candidates.append(
                 Candidate(
                     callsign=callsign,
@@ -122,8 +127,13 @@ def group_spots_into_candidates(
                     first_seen=cluster[0].timestamp,
                     last_seen=latest.timestamp,
                     confirming_sources={s.source for s in cluster},
+                    spotters={s.spotter for s in cluster if s.spotter},
                     best_snr_db=max(snr_values) if snr_values else None,
                     comments=[s.comment for s in cluster if s.comment],
+                    country=latest_with_country.country if latest_with_country else None,
+                    locator=latest_with_locator.locator if latest_with_locator else None,
+                    bearing_deg=latest_with_bearing.bearing_deg if latest_with_bearing else None,
+                    distance_km=latest_with_distance.distance_km if latest_with_distance else None,
                 )
             )
     return candidates
@@ -132,20 +142,65 @@ def group_spots_into_candidates(
 def attach_dxcc_and_bearing(
     candidates: list[Candidate], qth_latlon: tuple[float, float] | None
 ) -> None:
-    """Doplní DXCC entitu a (pokud je známé QTH) bearing/vzdálenost -- in place."""
+    """Doplní chybějící zemi a trasu bez přepsání evidence ze zdroje.
+
+    Lokátor konkrétní stanice je přesnější než referenční bod DXCC entity,
+    proto se pro výpočet používá přednostně. ``Spot`` ale hodnotu lokátoru
+    pouze normalizuje; její Maidenhead formát ověřuje až tato fáze při
+    převodu na souřadnice. Hodnota odmítnutá převodníkem proto zůstává
+    zachovaná jako původní evidence ze zdroje, nepoužije se pro geometrii
+    a bezpečně se přejde na DXCC referenční bod. Varování se tedy týká
+    lokátoru DX kandidáta dodaného zdrojem, nikoli konfigurovaného QTH.
+    """
     for candidate in candidates:
         entity = callsign_to_dxcc(candidate.callsign)
         candidate.dxcc = entity
-        if entity is not None and qth_latlon is not None:
+        if not candidate.country and entity is not None:
+            candidate.country = entity.name
+        if qth_latlon is None or (
+            candidate.bearing_deg is not None and candidate.distance_km is not None
+        ):
+            continue
+
+        target_latlon = None
+        if candidate.locator:
+            try:
+                target_latlon = maidenhead_to_latlon(candidate.locator)
+            except ValueError as exc:
+                logger.warning(
+                    "Lokátor kandidáta %r pro %s nelze použít; "
+                    "použije se referenční bod DXCC, pokud je známý: %s",
+                    candidate.locator,
+                    candidate.callsign,
+                    exc,
+                )
+        if target_latlon is None and entity is not None:
+            target_latlon = (entity.latitude, entity.longitude)
+        if target_latlon is not None:
             bearing, distance = bearing_and_distance(
-                qth_latlon[0], qth_latlon[1], entity.latitude, entity.longitude
+                qth_latlon[0], qth_latlon[1], target_latlon[0], target_latlon[1]
             )
-            candidate.bearing_deg = bearing
-            candidate.distance_km = distance
+            if candidate.bearing_deg is None:
+                candidate.bearing_deg = bearing
+            if candidate.distance_km is None:
+                candidate.distance_km = distance
+
+
+def band_activity(candidates: list[Candidate]) -> dict[str, int]:
+    """Počet odlišných stanic aktuálně spotnutých na každém pásmu -- lokálně
+    odvozený indikátor "otevření pásma" pro _propagation_reason ve
+    scoring.py. Žádná externí služba (solar flux/K-index) se nevolá --
+    AGENTS.md zakazuje fingovat data z nenapojených externích zdrojů, takže
+    se vychází výhradně z reálně přijatých spotů."""
+    activity: dict[str, set[str]] = defaultdict(set)
+    for candidate in candidates:
+        activity[candidate.band].add(candidate.callsign)
+    return {band: len(calls) for band, calls in activity.items()}
 
 
 def attach_scores(
-    candidates: list[Candidate], scoring_cfg: ScoringConfig, db: Database, now: float | None = None
+    candidates: list[Candidate], scoring_cfg: ScoringConfig, db: Database, now: float | None = None,
+    propagation: PropagationContext | None = None,
 ) -> None:
     """Spočítá a doplní ScoreResult pro každého kandidáta -- in place."""
 
@@ -154,8 +209,12 @@ def attach_scores(
             return True  # neznámá entita -> raději upozornit, ať operátor ověří
         return not db.is_worked(candidate.dxcc.name)
 
+    activity = band_activity(candidates)
     for candidate in candidates:
-        candidate.score = score_candidate(candidate, scoring_cfg, is_needed_dxcc=is_needed, now=now)
+        candidate.score = score_candidate(
+            candidate, scoring_cfg, is_needed_dxcc=is_needed, now=now, band_activity=activity,
+            propagation=propagation,
+        )
 
 
 class Aggregator:
@@ -169,11 +228,13 @@ class Aggregator:
         qth_latlon: tuple[float, float] | None = None,
         source_poll_interval_seconds: float = 60.0,
         source_backoff_max_seconds: float = DEFAULT_BACKOFF_MAX_SECONDS,
+        propagation: PropagationContext | None = None,
     ):
         self.sources = sources
         self.db = db
         self.scoring_cfg = scoring_cfg
         self.qth_latlon = qth_latlon
+        self.propagation = propagation
         self.pollers: list[PolledSource] = [
             PolledSource(
                 source,
@@ -193,8 +254,7 @@ class Aggregator:
         all_spots: list[Spot] = []
         for poller in self.pollers:
             spots_for_candidates, freshly_fetched = poller.poll(now)
-            for spot in freshly_fetched:
-                self.db.insert_spot(spot)
+            self.db.insert_spots(freshly_fetched)
             all_spots.extend(spots_for_candidates)
         return all_spots
 
@@ -230,6 +290,6 @@ class Aggregator:
 
         candidates = group_spots_into_candidates(spots)
         attach_dxcc_and_bearing(candidates, self.qth_latlon)
-        attach_scores(candidates, self.scoring_cfg, self.db, now=now)
+        attach_scores(candidates, self.scoring_cfg, self.db, now=now, propagation=self.propagation)
         candidates.sort(key=lambda c: c.score.total if c.score else 0, reverse=True)
         return candidates

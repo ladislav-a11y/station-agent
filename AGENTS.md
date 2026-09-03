@@ -4,6 +4,10 @@ Tento soubor je určen jak lidem, tak AI agentům, kteří budou na projektu
 dále pracovat. Cílem je, aby bezpečnostní invarianty přežily i budoucí
 refaktoring.
 
+Obecný manuální postup práce platný pro všechny projekty je v
+`D:\orchestrator\AI_PROJECT_PROTOCOL.md`; tento soubor obsahuje pouze pravidla
+specifická pro Station Agent.
+
 ## Tvrdá pravidla (nikdy neporušuj)
 
 1. **Žádné PTT.** Nikdy nepřidávej žádnou funkci, metodu ani API endpoint,
@@ -16,8 +20,8 @@ refaktoring.
    pokud se v kódu objeví byť jen řetězec "ptt" (case-insensitive). Pokud
    opravdu potřebuješ o PTT mluvit v dokumentaci mimo `station_agent/`,
    piš to tam, ne v balíčku samotném.
-2. **Žádné ovládání rotoru.** Bearing se pouze počítá a zobrazuje
-   (`bearing.py`). Nepřidávej modul, který by rotorem fyzicky otáčel.
+2. **Žádné ovládání anténního rotátoru.** Bearing se pouze počítá a zobrazuje
+   (`bearing.py`). Nepřidávej modul, který by anténu fyzicky natáčel.
 3. **Log4OM2 = jen prefill.** `log4om.py` smí sestavit a odeslat data pro
    předvyplnění řádku v deníku. Nikdy nepřidávej funkci, která by QSO
    automaticky uložila/potvrdila v deníku bez zásahu operátora.

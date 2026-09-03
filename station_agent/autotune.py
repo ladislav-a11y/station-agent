@@ -152,4 +152,6 @@ def apply_decision(
         tuned_at=time.time(),
         callsign=candidate.callsign,
         score=score_total,
+        bearing_deg=candidate.bearing_deg,
+        distance_km=candidate.distance_km,
     )

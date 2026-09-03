@@ -87,6 +87,13 @@ class _FakeTelnetServer:
                     with self._lock:
                         self._open_conns.append(conn)
                     continue
+                # ``sendall(); close()`` může na Windows skončit RST dřív,
+                # než klient převezme právě odeslanou poslední dávku. To
+                # nedeterministicky zahodí testovací spot a delší čekání už
+                # nemůže pomoci. Half-close garantuje data -> EOF; klient
+                # stále pozoruje skutečné ukončení streamu a otestuje tutéž
+                # reconnect/error větev jako při běžném FIN od serveru.
+                conn.shutdown(socket.SHUT_WR)
             except OSError:
                 pass
             conn.close()
@@ -128,11 +135,55 @@ class LiveTelnetSpotSourceHandshakeTests(unittest.TestCase):
             server.stop()
             source.close()
 
+    def test_connected_source_becomes_ready_after_startup_grace_without_spot(self):
+        server = _FakeTelnetServer(lines_per_connection=[[]], keep_open=True)
+        try:
+            source = DXClusterAdapter(
+                host=server.host,
+                port=server.port,
+                callsign="OK1RPL",
+                startup_grace_seconds=180.0,
+            )
+            with self.assertRaises(SourceNotReadyError):
+                source.fetch()
+            self.assertTrue(_wait_until(lambda: len(server.logins) >= 1))
 
-def _fetch_until_nonempty(source, timeout: float = 10.0) -> list[Spot]:
+            # Simulace uplynutí tříminutového rozběhu bez zpomalování testu.
+            source._started_at -= 181.0
+            self.assertEqual(source.fetch(), [])
+        finally:
+            server.stop()
+            source.close()
+
+    def test_connection_failure_is_error_after_startup_grace(self):
+        source = RBNAdapter(
+            host="127.0.0.1",
+            port=1,
+            callsign="OK1RPL",
+            startup_grace_seconds=180.0,
+            reconnect_initial_seconds=30.0,
+        )
+        try:
+            with self.assertRaises(SourceNotReadyError):
+                source.fetch()
+            self.assertTrue(_wait_until(lambda: source._last_error is not None))
+            source._started_at -= 181.0
+            with self.assertRaises(ConnectionError):
+                source.fetch()
+        finally:
+            source.close()
+
+
+def _fetch_until_nonempty(source, timeout: float = 20.0) -> list[Spot]:
     """Volá fetch() dokud nedorazí neprázdná dávka spotů, nebo nevyprší
     timeout -- ``SourceNotReadyError`` mezitím značí, že vlákno ještě
-    čeká na první data ze síťové smyčky (viz LiveTelnetSpotSource.fetch)."""
+    čeká na první data ze síťové smyčky (viz LiveTelnetSpotSource.fetch).
+
+    20 s (ne dřívějších 10 s) ze stejného důvodu jako u ``_wait_until``
+    volání níže v tomto souboru -- pod zátěží celé test suite (stovky
+    dalších testů, real sockets/threads) může první connect+login+parse
+    trvat déle, než když test běží izolovaně; rychlá cesta se timeoutem
+    vůbec neprodlužuje, vrací se hned po příchodu dat."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:

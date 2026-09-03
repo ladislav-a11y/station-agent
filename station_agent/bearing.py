@@ -1,7 +1,8 @@
 """Maidenhead locator <-> lat/lon a great-circle bearing/vzdálenost.
 
 Používá se výhradně pro VÝPOČET a ZOBRAZENÍ směru k DX stanici. Projekt
-záměrně neobsahuje žádný modul pro ovládání rotoru -- viz ARCHITECTURE.md.
+záměrně neobsahuje žádný modul pro ovládání anténního rotátoru -- viz
+ARCHITECTURE.md.
 """
 
 from __future__ import annotations

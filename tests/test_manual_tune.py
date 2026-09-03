@@ -12,6 +12,7 @@ import unittest
 import urllib.error
 import urllib.request
 
+from station_agent.web import server as server_module
 from station_agent.web.server import create_server
 from tests.test_web_api import build_test_app_state
 
@@ -114,6 +115,29 @@ class ManualTuneAppStateTests(unittest.TestCase):
         self.assertEqual(decision.action, "NONE")
         self.assertEqual(self.app_state.rig.set_frequency_calls, [])
 
+    def test_manual_tune_reports_no_countdown_while_hold_active(self):
+        """Regrese pro odpočet po ručním NALADIT: AUTO TUNE se vypne
+        (autotune_remaining_seconds musí být None, viz
+        _autotune_remaining_seconds ve web/server.py) a HOLD se zapne.
+        HOLD blokuje přeladění bez časového limitu, takže
+        hold_remaining_seconds zůstává None i po ručním NALADIT -- API
+        klíč je zachovaný jen kvůli starším klientům (viz
+        test_web_api.test_status_countdown_runs_only_during_autotune)."""
+        candidates = self.app_state.refresh_candidates()
+        target = candidates[0]
+        self.app_state.autotune_engine.cfg.min_hold_seconds = 120.0
+
+        self.app_state.manual_tune(target.callsign, target.freq_hz, target.mode)
+
+        self.assertFalse(self.app_state.autotune_engine.cfg.enabled)
+        self.assertTrue(self.app_state.autotune_engine.cfg.hold)
+        self.assertIsNotNone(self.app_state.current_rig_state)
+        self.assertEqual(self.app_state.current_rig_state.callsign, target.callsign)
+
+        status = server_module._build_status(self.app_state)
+        self.assertIsNone(status["autotune"]["autotune_remaining_seconds"])
+        self.assertIsNone(status["autotune"]["hold_remaining_seconds"])
+
 
 class ManualTuneApiTests(unittest.TestCase):
     """Backend/API regrese pro POST /api/tune."""
@@ -206,7 +230,26 @@ class ManualTuneApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(data["autotune"]["enabled"])
         self.assertTrue(data["autotune"]["hold"])
-        self.assertIsNotNone(data["autotune"]["hold_remaining_seconds"])
+        self.assertIsNone(data["autotune"]["autotune_remaining_seconds"])
+
+    def test_post_tune_response_reports_no_countdown_when_hold_active(self):
+        """Související regrese: /api/tune po NALADIT nesmí reportovat ani
+        autotune_remaining_seconds (AUTO TUNE je vypnuté), ani
+        hold_remaining_seconds (HOLD blokuje bez časového limitu)."""
+        self._post_json("/api/autotune", {"enabled": True, "hold": False, "min_hold_seconds": 90.0})
+
+        _, candidates_data = self._get("/api/candidates")
+        target = candidates_data["candidates"][0]
+        status, data = self._post_json(
+            "/api/tune",
+            {"callsign": target["callsign"], "freq_hz": target["freq_hz"], "mode": target["mode"]},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertFalse(data["autotune"]["enabled"])
+        self.assertTrue(data["autotune"]["hold"])
+        self.assertIsNone(data["autotune"]["autotune_remaining_seconds"])
+        self.assertIsNone(data["autotune"]["hold_remaining_seconds"])
 
 
 if __name__ == "__main__":

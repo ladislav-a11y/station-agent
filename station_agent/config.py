@@ -9,6 +9,7 @@ projekt funguje i bez jakékoli instalace závislostí.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,20 @@ from station_agent.modes import SUPPORTED_MODES
 from station_agent.bandplan import SUPPORTED_BANDS
 
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+# Jediný zdroj pravdy pro výchozí váhy scoringu -- scoring.py si je odsud
+# re-exportuje jako DEFAULT_WEIGHTS, aby nebyly duplikované na dvou místech
+# a nerozjížděly se při rozšiřování o nové faktory. Součet musí dát 100 --
+# viz tests/test_scoring.py::test_weights_sum_to_100.
+DEFAULT_SCORING_WEIGHTS: dict[str, float] = {
+    "freshness": 15,
+    "sources": 15,
+    "needed_dxcc": 25,
+    "signal": 10,
+    "reliability": 10,
+    "propagation": 15,
+    "path_dx": 10,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +53,38 @@ def _strip_comment(line: str) -> str:
     return line
 
 
+def _parse_flow_list(text: str) -> list:
+    """Naparsuje jednořádkový YAML seznam ve "flow" zápisu, např.
+    ``["20m", "15m"]`` -- config.example.yaml ho používá u ``presets.*.bands``
+    a ``presets.*.modes``. Bez tohoto by se v prostředí bez PyYAML (viz
+    _load_yaml_text, plnohodnotný fallback je záměrně bezzávislostní) celá
+    hodnota naparsovala jako doslovný text `_parse_scalar` níže, ne jako
+    seznam -- filtr proti SUPPORTED_BANDS/SUPPORTED_MODES v config_from_dict
+    by pak neprošel ani jeden znak a předvolba by tiše spadla na výchozí
+    "všechna pásma/módy" místo zamýšleného užšího výběru (viz DIAGNOSIS_P5.md)."""
+    inner = text[1:-1].strip()
+    if not inner:
+        return []
+    items: list[str] = []
+    current = ""
+    in_single = in_double = False
+    for ch in inner:
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            current += ch
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+            current += ch
+        elif ch == "," and not in_single and not in_double:
+            items.append(current)
+            current = ""
+        else:
+            current += ch
+    if current.strip():
+        items.append(current)
+    return [_parse_scalar(item) for item in items]
+
+
 def _parse_scalar(text: str) -> Any:
     text = text.strip()
     if text == "" or text.lower() in ("null", "~"):
@@ -48,6 +95,8 @@ def _parse_scalar(text: str) -> Any:
         return False
     if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
         return text[1:-1]
+    if len(text) >= 2 and text[0] == "[" and text[-1] == "]":
+        return _parse_flow_list(text)
     try:
         return int(text)
     except ValueError:
@@ -113,10 +162,16 @@ class _MiniYamlParser:
 def _load_yaml_text(text: str) -> dict:
     try:
         import yaml  # type: ignore
-
-        return yaml.safe_load(text) or {}
     except ImportError:
         return _MiniYamlParser(text).parse()
+    try:
+        return yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        # yaml.YAMLError neni podtrida ValueError, takze by bez tohoto
+        # prevodu propadl skrz load_config nezachyceny -- cli.py::main
+        # odchytava jen FileNotFoundError/ValueError (viz DIAGNOSIS_P5.md),
+        # ne kazdou moznou vyjimku z libovolneho YAML parseru.
+        raise ValueError(f"Neplatný YAML zápis: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -158,14 +213,7 @@ class RigConfig:
 class ScoringConfig:
     min_score: int = 60
     spot_max_age_minutes: float = 15.0
-    weights: dict[str, float] = field(
-        default_factory=lambda: {
-            "freshness": 25,
-            "sources": 20,
-            "needed_dxcc": 35,
-            "signal": 20,
-        }
-    )
+    weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SCORING_WEIGHTS))
 
 
 @dataclass
@@ -180,6 +228,62 @@ class AutoTuneConfig:
 class SourceConfig:
     enabled: bool = False
     options: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class FilterPreset:
+    """Pojmenovaná kombinace filtrů pásem/módů pro rychlý výběr v GUI
+    ("předvolby") -- čistě lokální UI pohodlí, nesahá na rig ani na žádnou
+    externí službu."""
+
+    label: str
+    bands: list[str]
+    modes: list[str]
+
+
+# Rozumné výchozí předvolby, použité pokud config.yaml žádné nedefinuje --
+# jen kombinace už existujících SUPPORTED_BANDS/SUPPORTED_MODES, nic
+# vymyšleného navíc.
+DEFAULT_PRESETS: dict[str, FilterPreset] = {
+    "all": FilterPreset(label="Vše", bands=list(SUPPORTED_BANDS), modes=list(SUPPORTED_MODES)),
+    "ssb": FilterPreset(label="Jen SSB", bands=list(SUPPORTED_BANDS), modes=["SSB"]),
+    "cw": FilterPreset(label="Jen CW", bands=list(SUPPORTED_BANDS), modes=["CW"]),
+    "digi": FilterPreset(
+        label="Jen digi",
+        bands=list(SUPPORTED_BANDS),
+        modes=["FT8", "FT4", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"],
+    ),
+}
+
+
+@dataclass
+class NotificationsConfig:
+    """Band-opening notifikace -- lokálně odvozený signál z aktuálně
+    přijatých spotů (žádné externí solar/K-index API, viz scoring.py
+    _propagation_reason a aggregator.band_activity). GUI ukazuje jediný
+    největší kladný přírůstek naměřený od spuštění (viz notifications.py)."""
+
+    enabled: bool = True
+    # Kolik odlišných stanic na pásmu už považujeme za "otevřené pásmo".
+    min_distinct_stations: int = 5
+    # Minimální doba mezi dvěma notifikacemi pro TENTÝŽ pásmo, i kdyby
+    # zůstávalo nepřetržitě otevřené (ochrana proti kolísání kolem prahu).
+    cooldown_minutes: float = 30.0
+    # Tvrdý strop počtu notifikací za poslední hodinu napříč všemi pásmy.
+    max_per_hour: int = 10
+
+    def __post_init__(self) -> None:
+        if self.min_distinct_stations < 2:
+            raise ValueError(
+                "notifications.min_distinct_stations musí být alespoň 2, dostal jsem "
+                f"{self.min_distinct_stations!r}"
+            )
+        if self.cooldown_minutes <= 0:
+            raise ValueError(
+                f"notifications.cooldown_minutes musí být kladné číslo, dostal jsem {self.cooldown_minutes!r}"
+            )
+        if self.max_per_hour <= 0:
+            raise ValueError(f"notifications.max_per_hour musí být kladné číslo, dostal jsem {self.max_per_hour!r}")
 
 
 @dataclass
@@ -200,6 +304,12 @@ class WebConfig:
                 f"web.host musí být loopback adresa {sorted(LOOPBACK_HOSTS)}, ne {self.host!r} "
                 "-- GUI smí běžet pouze na localhost."
             )
+        if not 0 <= self.port <= 65535:
+            # Bez tohoto by neplatný port (např. překlep s extra číslicí)
+            # projel load_config() v pořádku a spadl by až na nezachyceném
+            # OverflowError z socket.bind() uvnitř create_server(), které
+            # v main() běží mimo try/except (viz DIAGNOSIS_P5.md).
+            raise ValueError(f"web.port musí být v rozsahu 0-65535, ne {self.port!r}")
 
 
 @dataclass
@@ -233,6 +343,20 @@ class PollingConfig:
 
 
 @dataclass
+class PropagationConfig:
+    """Hourly refresh of external propagation evidence."""
+
+    enabled: bool = False
+    refresh_seconds: float = 3600.0
+    kp_url: str = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
+    sfi_url: str = "https://services.swpc.noaa.gov/json/f107_cm_flux.json"
+
+    def __post_init__(self) -> None:
+        if self.refresh_seconds < 3600:
+            raise ValueError("propagation.refresh_seconds nesmí být kratší než 3600 sekund")
+
+
+@dataclass
 class AppConfig:
     station: StationConfig = field(default_factory=StationConfig)
     rig: RigConfig = field(default_factory=RigConfig)
@@ -245,6 +369,9 @@ class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     polling: PollingConfig = field(default_factory=PollingConfig)
+    presets: dict[str, FilterPreset] = field(default_factory=lambda: dict(DEFAULT_PRESETS))
+    notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
+    propagation: PropagationConfig = field(default_factory=PropagationConfig)
 
 
 def _build_source_config(raw: dict) -> SourceConfig:
@@ -316,6 +443,39 @@ def config_from_dict(raw: dict) -> AppConfig:
         source_backoff_max_seconds=float(polling_raw.get("source_backoff_max_seconds", 1800.0)),
     )
 
+    presets_raw = raw.get("presets", {}) or {}
+    if presets_raw:
+        presets = {
+            str(key): FilterPreset(
+                label=str((val or {}).get("label", key)),
+                bands=[b for b in ((val or {}).get("bands") or []) if b in SUPPORTED_BANDS] or list(SUPPORTED_BANDS),
+                modes=[m for m in ((val or {}).get("modes") or []) if m in SUPPORTED_MODES] or list(SUPPORTED_MODES),
+            )
+            for key, val in presets_raw.items()
+        }
+    else:
+        presets = dict(DEFAULT_PRESETS)
+
+    notif_raw = raw.get("notifications", {}) or {}
+    notifications = NotificationsConfig(
+        enabled=bool(notif_raw.get("enabled", True)),
+        min_distinct_stations=int(notif_raw.get("min_distinct_stations", 5)),
+        cooldown_minutes=float(notif_raw.get("cooldown_minutes", 30.0)),
+        max_per_hour=int(notif_raw.get("max_per_hour", 10)),
+    )
+
+    propagation_raw = raw.get("propagation", {}) or {}
+    propagation = PropagationConfig(
+        # Keep an explicit opt-out, but enable the new propagation contract
+        # for older user configs which predate this section.  Otherwise an
+        # upgrade leaves the GUI permanently at "Kp: nedostupné" even though
+        # the distributed example enables the feature.
+        enabled=bool(propagation_raw.get("enabled", True)),
+        refresh_seconds=float(propagation_raw.get("refresh_seconds", 3600.0)),
+        kp_url=str(propagation_raw.get("kp_url", PropagationConfig().kp_url)),
+        sfi_url=str(propagation_raw.get("sfi_url", PropagationConfig().sfi_url)),
+    )
+
     return AppConfig(
         station=station,
         rig=rig,
@@ -328,10 +488,73 @@ def config_from_dict(raw: dict) -> AppConfig:
         web=web,
         database=database,
         polling=polling,
+        presets=presets,
+        notifications=notifications,
+        propagation=propagation,
     )
 
 
 def load_config(path: str | Path) -> AppConfig:
-    text = Path(path).read_text(encoding="utf-8")
+    config_path = Path(path)
+    if not config_path.is_file():
+        if config_path.exists():
+            # Existuje (adresář, pojmenovaná roura apod.), jen to není
+            # čitelný soubor -- návod "zkopíruj příklad" by byl zavádějící,
+            # protože cílová cesta už je obsazená něčím jiným.
+            raise FileNotFoundError(
+                f"Konfigurační cesta '{config_path}' existuje, ale není to "
+                "soubor (je to pravděpodobně adresář). Zadej --config s "
+                "cestou k platnému YAML souboru."
+            )
+        example_path = Path(__file__).resolve().parent.parent / "config.example.yaml"
+        # README dokumentuje `copy` pro Windows (sekce "Instalace a spuštění
+        # na Windows 11") a `cp` pro bash/PowerShell (sekce "Instalace").
+        # `cp` v syrovém cmd.exe (na rozdíl od PowerShell, kde je aliasovaný
+        # na Copy-Item) není vestavěný příkaz, proto na Windows nabídneme
+        # rovnou funkční `copy`, aby šel navrhovaný příkaz spustit beze změny.
+        copy_cmd = "copy" if os.name == "nt" else "cp"
+        hint = (
+            f"Konfigurační soubor '{config_path}' neexistuje. "
+            f"Zkopíruj příklad a uprav ho: {copy_cmd} {example_path} {config_path} "
+            "(viz README.md, sekce Instalace)."
+        )
+        if not config_path.parent.exists():
+            # Bez tohoto upozornění by výše navržený copy/cp příkaz selhal
+            # podruhé se zavádějící hláškou (cílový adresář neexistuje) --
+            # uživatel by nevěděl, že musí nejdřív vytvořit adresář, ne znovu
+            # opravovat cestu k souboru.
+            hint += (
+                f" Pozor, ani nadřazený adresář '{config_path.parent}' zatím "
+                "neexistuje -- je potřeba ho nejdřív vytvořit."
+            )
+        raise FileNotFoundError(hint)
+    text = config_path.read_text(encoding="utf-8")
     raw = _load_yaml_text(text)
-    return config_from_dict(raw)
+    if raw is not None and not isinstance(raw, dict):
+        # Validní YAML, ale ne mapování na nejvyšší úrovni (např. omylem
+        # vložený seznam nebo holý skalár) -- bez téhle hlídky by
+        # config_from_dict spadl na nezachyceném AttributeError z `raw.get(...)`,
+        # stejná třída "Station Agent nejde spustit" jako u chybějícího
+        # souboru nebo neplatného YAML zápisu (viz DIAGNOSIS_P5.md).
+        raise ValueError(
+            f"Konfigurace '{config_path}' musí být na nejvyšší úrovni YAML mapování "
+            f"(klíč: hodnota), ne {type(raw).__name__}. Zkontroluj strukturu proti "
+            f"config.example.yaml."
+        )
+    try:
+        return config_from_dict(raw)
+    except TypeError as exc:
+        # Prázdná (explicitně `null`) hodnota u číselného pole -- např.
+        # "rigctld_port:" bez hodnoty za dvojtečkou -- se z YAML naparsuje
+        # jako None, na rozdíl od chybějícího klíče (ten by použil výchozí
+        # hodnotu). config_from_dict pak volá int(None)/float(None), což
+        # vyhazuje TypeError, ne ValueError -- bez tohoto převodu by to
+        # cli.py::main() (odchytává jen FileNotFoundError/ValueError, viz
+        # DIAGNOSIS_P5.md) nezachytil a spadl by na nezachyceném tracebacku
+        # stejně jako dřív u ostatních neplatných hodnot v config.yaml.
+        raise ValueError(
+            f"Konfigurace '{config_path}' obsahuje prázdnou nebo neplatnou hodnotu "
+            f"u číselného pole: {exc}. Zkontroluj, že za každým ':' u číselných "
+            "políček (porty, intervaly, prahy) je vyplněná hodnota, nebo řádek "
+            "z config.yaml úplně smaž, ať se použije výchozí hodnota."
+        ) from exc

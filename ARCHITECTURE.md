@@ -2,7 +2,7 @@
 
 Cíl: čistá modulární architektura, kde je snadné přidat nový zdroj spotů
 (adaptér) nebo nový typ riggu, aniž by se sahalo do zbytku systému, a kde
-je bezpečnostně kritický kód (PTT, rotor, auto-log) fyzicky nemožné omylem
+je bezpečnostně kritický kód (PTT, anténní rotátor, auto-log) fyzicky nemožné omylem
 zapnout.
 
 ```
@@ -101,5 +101,5 @@ jako reálná odpověď externí služby (viz AGENTS.md pravidlo 6).
 - `autotune.py` volá výhradně `set_frequency`/`set_mode`.
 - `tests/test_rig_safety.py` prohledává celý zdrojový strom a selže, pokud
   se kdekoli v `station_agent/` objeví byť jen zmínka o PTT.
-- Rotor nemá modul vůbec — `bearing.py` pouze vrací číslo (stupně) pro
-  zobrazení v GUI.
+- Anténní rotátor nemá modul vůbec — `bearing.py` pouze vrací číslo (stupně)
+  pro zobrazení v GUI.

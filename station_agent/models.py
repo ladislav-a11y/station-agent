@@ -22,9 +22,15 @@ class Spot:
     comment: str = ""
     spotter: str = ""
     band: str = ""
+    country: str | None = None
+    locator: str | None = None
+    bearing_deg: float | None = None
+    distance_km: float | None = None
 
     def __post_init__(self) -> None:
         self.callsign = self.callsign.strip().upper()
+        self.country = self.country.strip() if self.country else None
+        self.locator = self.locator.strip().upper() if self.locator else None
         self.mode = normalize_mode(self.mode)
         self.freq_hz = canonical_digital_dial_frequency(self.freq_hz, self.mode)
         if not self.band:
@@ -68,8 +74,11 @@ class Candidate:
     first_seen: float
     last_seen: float
     confirming_sources: set[str] = field(default_factory=set)
+    spotters: set[str] = field(default_factory=set)
     best_snr_db: float | None = None
     comments: list[str] = field(default_factory=list)
+    country: str | None = None
+    locator: str | None = None
     dxcc: DXCCEntity | None = None
     bearing_deg: float | None = None
     distance_km: float | None = None
@@ -89,3 +98,5 @@ class RigState:
     tuned_at: float
     callsign: str | None = None
     score: int | None = None
+    bearing_deg: float | None = None
+    distance_km: float | None = None

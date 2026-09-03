@@ -1,5 +1,6 @@
 """Bezpečnostní testy: dokazují, že v projektu neexistuje ŽÁDNÁ cesta k
-zapnutí PTT/vysílání, a že rotor se nikdy neovládá (jen se počítá bearing).
+zapnutí PTT/vysílání, a že anténní rotátor se nikdy neovládá (jen se počítá
+bearing).
 
 Viz AGENTS.md pravidlo 1 a 2. Tyto testy musí projít i po jakémkoli
 budoucím refaktoringu -- pokud selžou, něco v kódu porušilo bezpečnostní
@@ -51,7 +52,7 @@ class NoPttStringAnywhereTests(unittest.TestCase):
         self.assertEqual(
             offending,
             [],
-            f"Nalezena funkce pro ovládání rotoru -- to je zakázané, viz AGENTS.md pravidlo 2: {offending}",
+            f"Nalezena funkce pro ovládání anténního rotátoru -- to je zakázané, viz AGENTS.md pravidlo 2: {offending}",
         )
 
 

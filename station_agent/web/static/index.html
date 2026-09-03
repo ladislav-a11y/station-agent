@@ -11,10 +11,15 @@
   <h1>Station Agent</h1>
   <div id="rig-status" class="rig-status">načítám stav riggu...</div>
   <div id="sources-status" class="sources-status"></div>
+  <div id="propagation-status" class="propagation-status">Kp: načítám...</div>
 </header>
 
 <section class="panel filters">
   <h2>Filtry</h2>
+  <div class="filter-group">
+    <label class="filter-label" for="filter-preset">Předvolba:</label>
+    <select id="filter-preset"><option value="">Vlastní</option></select>
+  </div>
   <div class="filter-group">
     <span class="filter-label">Módy:</span>
     <span id="mode-filters"></span>
@@ -25,21 +30,38 @@
   </div>
 </section>
 
+<section class="panel propagation-panel" aria-labelledby="propagation-heading">
+  <h2 id="propagation-heading">Podmínky šíření</h2>
+  <div id="propagation-summary" class="propagation-summary">Načítám data Kp a SFI…</div>
+  <div id="propagation-bands" class="propagation-bands"></div>
+  <div id="propagation-detail" class="propagation-detail"></div>
+</section>
+
 <section class="panel autotune">
   <h2>AUTO TUNE</h2>
-  <form id="autotune-form">
-    <label><input type="checkbox" id="at-enabled" /> AUTO TUNE zapnuto</label>
-    <label><input type="checkbox" id="at-hold" /> HOLD (pozastavit přeladění)</label>
+  <div class="autotune-mode-box" aria-label="Režim automatického ladění">
+    <span class="autotune-mode-label">Režim:</span>
+    <div class="rocker-switch">
+      <label>
+        <input type="radio" name="autotune-mode" id="at-enabled" />
+        <span>AUTO TUNE</span>
+      </label>
+      <label>
+        <input type="radio" name="autotune-mode" id="at-hold" />
+        <span>HOLD</span>
+      </label>
+    </div>
     <span id="at-hold-countdown" class="hold-countdown"></span>
+  </div>
+  <form id="autotune-form">
     <label>Min. skóre: <input type="number" id="at-min-score" min="0" max="100" style="width:5em" /></label>
     <label>Min. doba držení (s): <input type="number" id="at-min-hold" min="0" style="width:6em" /></label>
     <label>Min. rozdíl skóre: <input type="number" id="at-min-delta" min="0" style="width:5em" /></label>
-    <button type="submit">Uložit</button>
   </form>
   <div id="autotune-decision" class="decision"></div>
   <p class="safety-note">
     AUTO TUNE smí měnit pouze frekvenci a mód přes Hamlib/rigctld. Nikdy
-    nezapíná vysílání (klíčování transmitteru) a nikdy neotáčí rotorem.
+    nezapíná vysílání (klíčování transmitteru) a nikdy neovládá anténní rotátor.
   </p>
 </section>
 
@@ -48,6 +70,7 @@
   <p class="hint">Klikni na řádek kandidáta pro výběr, pak naladi tlačítkem NALADIT.</p>
   <div class="tune-controls">
     <button type="button" id="tune-button" disabled>NALADIT</button>
+    <button type="button" id="qso-button" disabled>ZAPSAT QSO DO HISTORIE</button>
     <span id="tune-selected" class="tune-selected">Nevybrán žádný kandidát.</span>
   </div>
   <div id="tune-result" class="tune-result"></div>
@@ -66,6 +89,17 @@
     </thead>
     <tbody id="candidates-body"></tbody>
   </table>
+</section>
+
+<section class="panel">
+  <h2>Band-opening notifikace</h2>
+  <div id="notifications" class="event-list">Žádné notifikace.</div>
+</section>
+
+<section class="panel">
+  <h2>Historie QSO</h2>
+  <p class="hint">Záznam vznikne pouze po explicitním stisku tlačítka; Log4OM2 tím není potvrzen ani uložen.</p>
+  <div id="qso-history" class="event-list">Historie je prázdná.</div>
 </section>
 
 <script src="/app.js"></script>
