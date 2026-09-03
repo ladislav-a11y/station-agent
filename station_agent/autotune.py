@@ -6,6 +6,13 @@ a už vůbec ne vysílání (rozhraní RigControl žádnou takovou metodu ani
 nemá). Viz AGENTS.md pravidlo 1.
 
 Pravidla (v tomto pořadí):
+0. Pokud je aktivní HOLD a od naladění aktuální stanice uplynulo aspoň
+   ``min_hold_seconds`` -> HOLD sám vyprší (``cfg.hold = False``) a AUTO
+   TUNE se sám znovu zapne (``cfg.enabled = True``), načež se pokračuje
+   běžným vyhodnocením níže. Bez tohoto kroku by po ručním NALADIT (které
+   nastaví HOLD a vypne AUTO TUNE, viz app_state.manual_tune) zůstalo
+   AUTO TUNE navždy vypnuté, dokud by ho operátor ručně znovu nezapnul --
+   diagnostikovaný bug "autotune se nespustí i po vypršení doby držení".
 1. Pokud AUTO TUNE není zapnuté -> NONE.
 2. Pokud je aktivní HOLD -> NONE.
 2b. Kandidáti mimo aktuálně aktivní ``allowed_bands``/``allowed_modes`` se
@@ -26,6 +33,7 @@ Pravidla (v tomto pořadí):
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 
@@ -34,6 +42,8 @@ from station_agent.config import AutoTuneConfig
 from station_agent.db import Database
 from station_agent.models import Candidate, RigState
 from station_agent.rig.base import RigControl
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -57,6 +67,14 @@ class AutoTuneEngine:
         allowed_modes: set[str] | None = None,
     ) -> TuneDecision:
         now = time.time() if now is None else now
+
+        if self.cfg.hold and current is not None and (now - current.tuned_at) >= self.cfg.min_hold_seconds:
+            logger.debug(
+                "HOLD vypršel po %.0fs (min_hold_seconds=%.0f) -- AUTO TUNE se znovu zapíná",
+                now - current.tuned_at, self.cfg.min_hold_seconds,
+            )
+            self.cfg.hold = False
+            self.cfg.enabled = True
 
         if not self.cfg.enabled:
             return TuneDecision("NONE", None, "AUTO TUNE je vypnuté")
