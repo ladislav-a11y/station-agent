@@ -42,6 +42,18 @@ class MaidenheadTests(unittest.TestCase):
         self.assertAlmostEqual(lat8, lat6, delta=1.0 / 24.0)
         self.assertAlmostEqual(lon8, lon6, delta=2.0 / 24.0)
 
+    def test_eight_char_locator_with_letter_extended_square(self):
+        # Reálný kandidát 'KN10LNPN' z PSKReporteru: 7.-8. znak (extended
+        # square) jsou písmena místo obvyklých číslic. Formálně jde o platné
+        # zpřesnění (homogenní dvojice), dřív to ale tvrdě padalo na
+        # "Neplatný formát" a bearing spadl zpět na referenční bod DXCC.
+        lat6, lon6 = maidenhead_to_latlon("KN10LN")
+        lat8, lon8 = maidenhead_to_latlon("KN10LNPN")
+        self.assertTrue(-90.0 <= lat8 <= 90.0)
+        self.assertTrue(-180.0 <= lon8 <= 180.0)
+        self.assertAlmostEqual(lat8, lat6, delta=1.0 / 24.0)
+        self.assertAlmostEqual(lon8, lon6, delta=2.0 / 24.0)
+
     def test_ten_char_extended_locator_from_real_pskreporter_data(self):
         # Skutečné hodnoty senderLocator z živého PSKReporter query API
         # (viz LIVE_EVIDENCE.md, iterace "live test v PowerShell") -- dřív

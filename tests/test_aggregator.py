@@ -118,6 +118,20 @@ class DxccBearingTests(unittest.TestCase):
             attach_dxcc_and_bearing(candidates, qth_latlon=(50.0755, 14.4378))
         self.assertLess(candidates[0].distance_km, 100)
 
+    def test_eight_char_locator_with_letter_extended_square_does_not_fall_back(self):
+        # Reálný kandidát z PSKReporteru: 'KN10LNPN' (8 znaků, 7.-8. znak
+        # jsou písmena místo číslic) dřív padal na "Neplatný formát" a
+        # bearing se počítal z referenčního bodu DXCC místo z lokátoru.
+        now = time.time()
+        candidates = group_spots_into_candidates([
+            Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now,
+                 source="pskreporter", locator="KN10LNPN")
+        ])
+        with self.assertNoLogs("station_agent.aggregator", level="WARNING"):
+            attach_dxcc_and_bearing(candidates, qth_latlon=(50.0755, 14.4378))
+        self.assertIsNotNone(candidates[0].bearing_deg)
+        self.assertIsNotNone(candidates[0].distance_km)
+
     def test_invalid_source_locator_is_preserved_and_falls_back_to_dxcc(self):
         now = time.time()
         candidates = group_spots_into_candidates([

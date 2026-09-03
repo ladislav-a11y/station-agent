@@ -17,12 +17,16 @@ def maidenhead_to_latlon(locator: str) -> tuple[float, float]:
 
     Podporuje i "extended" precision (8/10 znaků), kterou reálně vrací
     PSKReporter (senderLocator) pro část stanic -- viz LIVE_EVIDENCE.md
-    ("live test v PowerShell"): pár po dvojici znaků dál střídavě zpřesňuje
-    pozici (6.-7. znak = extended square, číslice 0-9; 9.-10. znak =
-    extended subsquare, písmena A-X), stejně jako subsquare (5.-6. znak)
-    zpřesňuje square. Bez podpory těchto delších locatorů by se u ~10 %
-    reálných PSKReporter kandidátů zahazoval platný bearing jako "neplatná
-    délka", ačkoliv jde o formálně správný, jen přesnější locator.
+    ("live test v PowerShell"): každá další dvojice znaků za základními 4
+    dál zpřesňuje pozici, typicky střídavě číslicemi (extended square,
+    0-9) a písmeny (extended subsquare, A-X), stejně jako subsquare
+    (5.-6. znak) zpřesňuje square. Typ páru (písmena vs. číslice) se ale
+    určuje podle skutečného obsahu dvojice, ne podle pevné pozice -- někteří
+    poskytovatelé vrací i na pozici extended square písmena místo číslic
+    (reálný kandidát 'KN10LNPN'), přesto jde o formálně platné zpřesnění.
+    Bez podpory těchto delších locatorů by se u ~10 % reálných PSKReporter
+    kandidátů zahazoval platný bearing jako "neplatná délka"/"neplatný
+    formát", ačkoliv jde o formálně správný, jen přesnější locator.
 
     Vrací souřadnice středu příslušného pole/čtverce/podčtverce.
     """
@@ -37,26 +41,29 @@ def maidenhead_to_latlon(locator: str) -> tuple[float, float]:
     lon_size = 2.0
     lat_size = 1.0
 
+    # Standardně 5.-6. znak (subsquare) jsou písmena, 7.-8. číslice (extended
+    # square), 9.-10. zase písmena atd. Někteří poskytovatelé ale i pro
+    # 7.-8. znak vrací písmena místo číslic (reálný kandidát 'KN10LNPN' z
+    # PSKReporteru), přesto jde o formálně platné zpřesnění polohy -- proto
+    # se typ páru (písmena vs. číslice) určuje podle skutečného obsahu
+    # dvojice, ne podle pevné pozice. Pár musí být homogenní (obě písmena,
+    # nebo obě číslice); smíšený pár zůstává neplatný.
     pos = 4
-    use_letters = True  # 5.-6. znak (subsquare) jsou písmena, 7.-8. číslice, 9.-10. zase písmena, ...
     while pos < len(loc):
         a, b = loc[pos], loc[pos + 1]
-        if use_letters:
-            if not (a.isalpha() and b.isalpha()):
-                raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
+        if a.isalpha() and b.isalpha():
             divisions = 24.0
             idx_lon, idx_lat = ord(a) - ord("A"), ord(b) - ord("A")
-        else:
-            if not (a.isdigit() and b.isdigit()):
-                raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
+        elif a.isdigit() and b.isdigit():
             divisions = 10.0
             idx_lon, idx_lat = int(a), int(b)
+        else:
+            raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
         lon_size /= divisions
         lat_size /= divisions
         lon += idx_lon * lon_size
         lat += idx_lat * lat_size
         pos += 2
-        use_letters = not use_letters
 
     lon += lon_size / 2.0
     lat += lat_size / 2.0
