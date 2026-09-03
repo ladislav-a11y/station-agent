@@ -17,6 +17,7 @@ from station_agent.adapters.dx_cluster import DXClusterAdapter, parse_spot_line
 from station_agent.adapters.mock import MockAdapter
 from station_agent.adapters.pskreporter import PSKReporterAdapter, parse_pskreporter_report
 from station_agent.adapters.rbn import RBNAdapter, parse_rbn_line
+from station_agent.aggregator import attach_dxcc_and_bearing, group_spots_into_candidates
 from station_agent.config import DEFAULT_SCORING_WEIGHTS
 from station_agent.dxcc import PREFIX_TABLE
 from station_agent.models import Candidate
@@ -72,6 +73,34 @@ class SpotSourceMatchesAdapterNameTests(unittest.TestCase):
         spots = parse_pskreporter_report(PSKR_FIXTURE)
         self.assertTrue(spots)
         self.assertTrue(all(s.source == PSKReporterAdapter.name for s in spots))
+
+
+class MissingCountryFilledFromCallsignPrefixTests(unittest.TestCase):
+    """DATA_CONTRACT.md řádek 25/41: žádný adaptér nedodává vlastní
+    ``country`` (viz ``SpotSourceMatchesAdapterNameTests`` výše -- reálné
+    parsery níže to potvrzují), takže whole-pipeline chování "poskytovatel
+    nedodá zemi stanice -> station agent ji doplní podle prefixu volací
+    značky" stojí a padá na aggregator.attach_dxcc_and_bearing. Tenhle test
+    to ověřuje end-to-end od skutečného parseru přes serializaci do JSON
+    pro GUI, ne jen na ručně sestaveném Candidate/Spot jako
+    tests/test_aggregator.py."""
+
+    def test_dx_cluster_spot_country_filled_end_to_end_in_gui_payload(self):
+        line = "DX de OK1KT:     14195.0  JA1XYZ       SSB nice signal          1234Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertIsNone(spot.country, "provider nesmí sám dodávat zemi -- viz DATA_CONTRACT.md")
+
+        candidates = group_spots_into_candidates([spot])
+        attach_dxcc_and_bearing(candidates, qth_latlon=None)
+        self.assertEqual(len(candidates), 1)
+        candidate = candidates[0]
+        self.assertEqual(candidate.country, PREFIX_TABLE["JA"].name)
+
+        cfg = ScoringConfig(weights=dict(DEFAULT_SCORING_WEIGHTS), spot_max_age_minutes=15)
+        candidate.score = score_candidate(candidate, cfg, is_needed_dxcc=lambda c: True)
+        payload = candidate_to_dict(candidate)
+        self.assertEqual(payload["country"], PREFIX_TABLE["JA"].name)
 
 
 class ScoringContractTests(unittest.TestCase):
