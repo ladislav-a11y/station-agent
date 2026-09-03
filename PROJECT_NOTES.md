@@ -90,3 +90,36 @@
 * Fyzické připojení IC-7300 přes `rigctld` zůstává na uživateli -- v tomto
   prostředí není žádný rig k dispozici, jde o nutně manuální krok mimo
   dosah agenta.
+
+## Diagnostika nestandardního chování z live testu -- 03.09.2026
+
+* Vyřízen Inbox požadavek "Station agent -- diagnostika nestandardního
+  chování". Nestandardní chování: po hodinách nepřetržitého live provozu
+  (viz sekce výše) `station_agent.sqlite3` narostl na **295 MB**, přestože
+  `app_state.refresh_candidates()` volá `db.purge_older_than()` při každém
+  refresh cyklu a v tabulce `spots` reálně zůstávalo jen 8210 řádků
+  odpovídajících oknu `spot_max_age_minutes`.
+* Kořenová příčina: `Database` nikdy nezapínal SQLite `auto_vacuum`. Bez
+  něj DELETE jen přesune uvolněné stránky do interního freelistu souboru,
+  ale OS je nedostane zpět -- ověřeno přímo na souboru: `PRAGMA page_count`
+  72051, `PRAGMA freelist_count` 71817 (99,7 % souboru byla mrtvá volná
+  místa, ne data). Existující komentář v `app_state.py` u volání
+  `purge_older_than` mylně předpokládal, že pravidelné mazání řádků samo
+  o sobě zabrání růstu souboru na disku.
+* Oprava v `station_agent/db.py`: nová `Database._enable_incremental_vacuum()`
+  jednorázově (jen pro soubor, ne `:memory:`) přepne `PRAGMA auto_vacuum =
+  INCREMENTAL` a provede `VACUUM` (u existující databáze je to jediný
+  způsob, jak režim aktivovat a zároveň hned zkomprimovat nahromaděný
+  freelist). `purge_older_than()` navíc po každém smazání zavolá `PRAGMA
+  incremental_vacuum` (a `.fetchall()` na kurzoru -- sqlite3 modul jinak
+  stepuje jen první uvolněnou stránku na `.execute()`, zbytek freelistu by
+  bez fetchall zůstal neuvolněný), aby stránky uvolněné dalším provozem
+  nečekaly na příští restart.
+* Ověřeno na reálném `station_agent.sqlite3` z tohoto live provozu: po
+  otevření přes opravenou `Database` klesla velikost souboru z 295 120 896
+  na 913 408 bajtů, `freelist_count` na 0.
+* Nové regresní testy `tests/test_db.py::DatabaseFileGrowthTests` (nová
+  databáze má `auto_vacuum=INCREMENTAL`; vložení a smazání 500 spotů
+  soubor na disku skutečně zmenší, ne jen vyprázdní řádky).
+* Mimo rozsah beze změny -- žádný adaptér, scoring, rig ani web GUI kód
+  nebyl dotčen.

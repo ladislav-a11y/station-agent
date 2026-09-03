@@ -97,6 +97,7 @@ class Database:
                 if name not in spot_columns:
                     self._conn.execute(f"ALTER TABLE spots ADD COLUMN {name} {column_type}")
             self._conn.commit()
+            self._enable_incremental_vacuum()
         except Exception:
             # Např. `path` míří na existující soubor, který není platná
             # SQLite databáze (sqlite3.DatabaseError "file is not a
@@ -107,6 +108,30 @@ class Database:
             # otevření DB).
             self._conn.close()
             raise
+
+    def _enable_incremental_vacuum(self) -> None:
+        """Zapne ``auto_vacuum = INCREMENTAL`` a jednorázově zkomprimuje
+        soubor.
+
+        Live test 03.09.2026 odhalil nestandardní chování: `spots` se sice
+        pravidelně čistí (viz `app_state.refresh_candidates` ->
+        `purge_older_than`), ale bez `auto_vacuum` SQLite uvolněné stránky
+        po DELETE nevrací OS -- zůstávají ve freelistu uvnitř souboru. Po
+        dnech nepřetržitého provozu tak soubor na disku naroste na stovky
+        MB, i když v tabulkách reálně zůstávají jen řádky z posledního
+        `spot_max_age_minutes` okna (ověřeno: `station_agent.sqlite3` mělo
+        72051 stránek, z toho 71817 (99,7 %) ve freelistu). Přepnutí režimu
+        na existující databázi vyžaduje `VACUUM` -- proto se dělá jen
+        jednou (další start už `auto_vacuum` najde zapnuté a přeskočí).
+        In-memory databáze (testy) tímto problémem netrpí, přeskakuje se.
+        """
+        if self.path == ":memory:":
+            return
+        current_mode = self._conn.execute("PRAGMA auto_vacuum").fetchone()[0]
+        if current_mode == 2:
+            return
+        self._conn.execute("PRAGMA auto_vacuum = INCREMENTAL")
+        self._conn.execute("VACUUM")
 
     def close(self) -> None:
         self._conn.close()
@@ -214,6 +239,16 @@ class Database:
         cutoff = now - max_age_seconds
         cur = self._conn.execute("DELETE FROM spots WHERE ts < ?", (cutoff,))
         self._conn.commit()
+        if cur.rowcount and self.path != ":memory:":
+            # Uvolní stránky smazaných řádků zpět OS hned teď (viz
+            # _enable_incremental_vacuum) -- bez tohoto by DELETE jen
+            # naplnil interní freelist a soubor by na disku dál rostl i
+            # přes pravidelné čištění. sqlite3 stepuje "PRAGMA
+            # incremental_vacuum" po jedné uvolněné stránce na fetch --
+            # bez fetchall() by se `.execute()` zastavilo po první stránce
+            # a zbytek freelistu by zůstal neuvolněný.
+            self._conn.execute("PRAGMA incremental_vacuum").fetchall()
+            self._conn.commit()
         return cur.rowcount
 
     # -- worked DXCC cache -------------------------------------------------

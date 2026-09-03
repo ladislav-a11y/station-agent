@@ -107,6 +107,46 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(history[1]["bearing_deg"], 123.4)
 
 
+class DatabaseFileGrowthTests(unittest.TestCase):
+    """Regrese pro nestandardní chování odhalené live testem 03.09.2026:
+    soubor `.sqlite3` rostl na disku i přes pravidelné `purge_older_than`,
+    protože SQLite bez `auto_vacuum` nevrací uvolněné stránky OS (viz
+    Database._enable_incremental_vacuum)."""
+
+    def test_new_file_database_enables_incremental_auto_vacuum(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "station.sqlite3"
+            with Database(str(db_path)) as db:
+                mode = db._conn.execute("PRAGMA auto_vacuum").fetchone()[0]
+                self.assertEqual(mode, 2)  # INCREMENTAL
+
+    def test_purge_reclaims_disk_space_instead_of_only_freelist(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "station.sqlite3"
+            with Database(str(db_path)) as db:
+                now = time.time()
+                stale = [
+                    Spot(
+                        callsign=f"OK1AA{i:03d}",
+                        freq_hz=14_195_000,
+                        mode="SSB",
+                        timestamp=now - 7200,
+                        source="mock",
+                        comment="x" * 500,
+                    )
+                    for i in range(500)
+                ]
+                db.insert_spots(stale)
+                size_before_purge = db_path.stat().st_size
+                removed = db.purge_older_than(max_age_seconds=600, now=now)
+                self.assertEqual(removed, 500)
+                freelist_count = db._conn.execute("PRAGMA freelist_count").fetchone()[0]
+                size_after_purge = db_path.stat().st_size
+
+            self.assertEqual(freelist_count, 0)
+            self.assertLess(size_after_purge, size_before_purge)
+
+
 class DatabaseConstructionFailureTests(unittest.TestCase):
     def test_invalid_sqlite_file_closes_connection_instead_of_leaking_lock(self):
         """Regrese: kdyz `path` miri na existujici soubor, ktery neni platna
