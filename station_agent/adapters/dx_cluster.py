@@ -1,8 +1,10 @@
 """Živý DX Cluster adaptér nad sdíleným telnet klientem.
 
 Parser podporuje standardní řádky ``DX de <SPOTTER>:`` i živý tabulkový
-formát W3LPL. Dokud ze skutečného serveru nedorazí první platný spot,
+formát W3LPL. Dokud se ze skutečného serveru nepodaří navázat spojení,
 zdroj zůstává ve stavu pending; nikdy jej nenahrazuje vymyšlenými daty.
+Jakmile je spojení navázané, přechází rovnou do stavu ok i bez právě
+přijatého spotu (viz telnet_source.py).
 """
 
 from __future__ import annotations

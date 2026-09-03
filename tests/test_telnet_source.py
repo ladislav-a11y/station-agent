@@ -135,7 +135,7 @@ class LiveTelnetSpotSourceHandshakeTests(unittest.TestCase):
             server.stop()
             source.close()
 
-    def test_connected_source_becomes_ready_after_startup_grace_without_spot(self):
+    def test_connected_source_becomes_ready_immediately_without_spot(self):
         server = _FakeTelnetServer(lines_per_connection=[[]], keep_open=True)
         try:
             source = DXClusterAdapter(
@@ -148,9 +148,20 @@ class LiveTelnetSpotSourceHandshakeTests(unittest.TestCase):
                 source.fetch()
             self.assertTrue(_wait_until(lambda: len(server.logins) >= 1))
 
-            # Simulace uplynutí tříminutového rozběhu bez zpomalování testu.
-            source._started_at -= 181.0
-            self.assertEqual(source.fetch(), [])
+            # Spojení je navázané a login odeslaný -- zdroj musí přejít na
+            # "ok" hned, BEZ čekání na uplynutí startovní grace period
+            # (ta se uplatní jen pro cestu "spojení se nikdy nepodařilo
+            # navázat" -- viz test_connection_failure_is_error_after_startup_grace).
+            deadline = time.time() + 5.0
+            result = None
+            while time.time() < deadline:
+                try:
+                    result = source.fetch()
+                except SourceNotReadyError:
+                    time.sleep(0.02)
+                    continue
+                break
+            self.assertEqual(result, [])
         finally:
             server.stop()
             source.close()
@@ -238,8 +249,21 @@ class LiveTelnetSpotSourceParsingTests(unittest.TestCase):
             with self.assertRaises(SourceNotReadyError):
                 source.fetch()
             self.assertTrue(_wait_until(lambda: server.connection_count >= 1))
-            with self.assertRaises(SourceNotReadyError):
-                source.fetch()
+
+            # Garbage řádky se tiše zahodí (parse_line vrátí None), ale
+            # spojení samo je navázané -- zdroj proto musí přejít na "ok"
+            # (fetch() vrací prázdný seznam), NE zůstat v "pending" jen
+            # proto, že ještě nedorazil rozpoznatelný spot.
+            deadline = time.time() + 5.0
+            result = None
+            while time.time() < deadline:
+                try:
+                    result = source.fetch()
+                except SourceNotReadyError:
+                    time.sleep(0.02)
+                    continue
+                break
+            self.assertEqual(result, [])
         finally:
             server.stop()
             source.close()

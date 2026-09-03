@@ -215,12 +215,15 @@ DX Cluster a RBN běží na sdíleném telnet klientovi (`station_agent/adapters
 vlastní daemon vlákno na zdroj, skutečný TCP socket, login callsignem
 (`station.callsign` z configu, nebo přepsatelné přes `sources.<zdroj>.callsign`),
 čtení řádek po řádku a nezávislý reconnect s exponenciálním backoffem --
-výpadek jednoho zdroje neovlivní ostatní. DX Cluster a RBN mají po prvním
-spuštění tříminutovou grace period: během ní se jejich připojení rozbíhá a
-stav "ok" se ještě neočekává. Po jejím uplynutí je aktivní přihlášené telnet
-spojení "ok" i v okamžiku, kdy zrovna nepřišel žádný spot; nedostupné spojení
-je "error". Po prvních reálných datech se další výpadky hlásí jako "error",
-nikdy zpátky "pending". Žádný adaptér nevrací
+výpadek jednoho zdroje neovlivní ostatní. Stav "pending" trvá jen do prvního
+navázání TCP spojení a odeslání loginu -- jakmile je spojení navázané, hlásí
+se rovnou "ok", i v okamžiku, kdy zrovna nepřišel žádný spot; žádné umělé
+čekání na uplynutí grace period. Tříminutová grace period po prvním spuštění
+se uplatní jen v opačném směru: dokud se spojení vůbec poprvé nepodařilo
+navázat, dává reconnectům čas, než se neúspěch nahlásí jako "error" (místo
+okamžitého sklopení na "error" už při prvním selhaném pokusu). Nedostupné
+spojení mimo tuto grace period je "error". Po prvních reálných datech se
+další výpadky hlásí jako "error", nikdy zpátky "pending". Žádný adaptér nevrací
 vymyšlená/nafingovaná data tvářící se jako reálná odpověď (viz AGENTS.md
 pravidlo 6). V příkladové konfiguraci jsou všechny síťové zdroje záměrně
 `enabled: false`: uživatel si musí zvolit vlastní callsign a výslovně zapnout

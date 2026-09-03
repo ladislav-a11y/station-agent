@@ -25,12 +25,16 @@ které:
 
 ``fetch()`` (volané z ``adapters/polling.py``) pouze vybere spoty
 nashromážděné od posledního volání -- vlastní síťová smyčka běží nezávisle
-na tom, jak často (nebo jestli vůbec) něco volá ``fetch()``. Během výchozí
-tříminutové grace period vyhazuje ``SourceNotReadyError`` (GUI stav
-"pending"), aby měl server čas na připojení, login a první data. Potom je
-aktivní přihlášené spojení připravené i bez právě přijatého spotu; neúspěšné
-spojení je běžná výjimka (GUI stav "error"). Jakmile jednou dorazí reálná
-data, další výpadky se rovněž hlásí jako "error" -- ne návrat k "pending".
+na tom, jak často (nebo jestli vůbec) něco volá ``fetch()``. Dokud se
+nepodaří navázat TCP spojení a odeslat login, vyhazuje ``SourceNotReadyError``
+(GUI stav "pending"). Jakmile je spojení navázané a login odeslaný, zdroj se
+hned hlásí jako připravený (GUI stav "ok") i bez právě přijatého spotu --
+žádné umělé čekání na uplynutí startovní grace period. Ta se uplatní jen
+opačně: dokud spojení vůbec poprvé nevznikne, dává reconnectům čas, než se
+neúspěch nahlásí jako běžná chyba (GUI stav "error"), místo aby první
+selhání spojení okamžitě sklopilo stav na "error". Jakmile jednou dorazí
+reálná data, další výpadky se rovněž hlásí jako "error" -- ne návrat
+k "pending".
 """
 
 from __future__ import annotations
@@ -140,12 +144,15 @@ class LiveTelnetSpotSource(SpotSource):
             started_at = self._started_at
             error = self._last_error
         if not ever_received:
+            if connected:
+                # Socket je navázaný a login odeslaný -- není důvod držet
+                # stav "pending" dalších až 180 s jen kvůli čekání na první
+                # spot, když spojení samo je funkční (viz modulový docstring
+                # výše, bod 4, a AGENTS.md pravidlo 6).
+                return []
             elapsed = 0.0 if started_at is None else time.monotonic() - started_at
-            if elapsed >= self.startup_grace_seconds:
-                if connected:
-                    return []
-                if error:
-                    raise ConnectionError(error)
+            if elapsed >= self.startup_grace_seconds and error:
+                raise ConnectionError(error)
             raise SourceNotReadyError(
                 error or (
                     f"{self.name}: zdroj se spouští, čekám na spojení nebo první živá data "

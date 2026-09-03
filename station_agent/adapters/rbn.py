@@ -7,8 +7,9 @@ viz https://www.reversebeacon.net/pages/telnet) používá stejný sdílený
 generický klient ``LiveTelnetSpotSource`` jako DX Cluster -- skutečný TCP
 socket, login callsignem, čtení řádků a vlastní reconnect/backoff nezávislý
 na ostatních zdrojích. ``fetch()`` vyhazuje ``SourceNotReadyError`` (GUI
-stav "pending"), dokud adaptér poprvé skutečně nenaváže spojení a
-nenaparsuje aspoň jeden reálný spot -- viz README.md "Stav externích
+stav "pending"), dokud adaptér poprvé skutečně nenaváže spojení; jakmile je
+spojení navázané a login odeslaný, adaptér se hlásí jako připravený (GUI
+stav "ok") i bez právě přijatého spotu -- viz README.md "Stav externích
 zdrojů" a AGENTS.md pravidlo 6.
 """
 

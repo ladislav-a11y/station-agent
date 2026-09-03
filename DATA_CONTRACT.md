@@ -72,9 +72,10 @@ Viz README.md "Stav externích zdrojů" pro plnou tabulku. Shrnutí kontraktu:
   vždy viditelně "mock" ve `confirming_sources`).
 - **dx_cluster***, **rbn** -- `LiveTelnetSpotSource` (`adapters/telnet_source.py`);
   každý pojmenovaný DX Cluster uzel zachovává vlastní identitu zdroje,
-  reálný TCP telnet socket; dokud první spot skutečně nedorazí, `fetch()`
-  hlásí `SourceNotReadyError` (GUI stav "pending"), nikdy nevrací vymyšlená
-  data.
+  reálný TCP telnet socket; dokud se spojení skutečně nenaváže, `fetch()`
+  hlásí `SourceNotReadyError` (GUI stav "pending"). Jakmile je spojení
+  navázané a login odeslaný, přechází rovnou na "ok" i bez právě přijatého
+  spotu -- nikdy nevrací vymyšlená data.
 - **pskreporter** -- reálný HTTP GET (`adapters/pskreporter.py`), stejné
   pravidlo: síťová chyba/rate-limit se propaguje jako výjimka, ne jako
   tichý prázdný/nafingovaný výsledek.
