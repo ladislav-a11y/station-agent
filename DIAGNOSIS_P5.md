@@ -124,6 +124,22 @@ server běžel, dokud nebyl ukončen).
   `ERROR` log + exit kód 1, žádný traceback. Regresní test:
   `tests/test_cli_sources.py::MissingConfigStartupTests::test_main_exits_cleanly_when_web_port_is_already_in_use`.
 
+- `station_agent/cli.py::main` -- `app_state.refresh_candidates()` (počáteční
+  synchronní naplnění kandidátů, volané před spuštěním web serveru --
+  `aggregator.poll_once` + DB purge + `build_candidates`/scoring) běželo
+  MIMO jakýkoli `try/except` v `main()`, přestože `build_app_state()`
+  o řádek výš už svůj vlastní řetězec (DB/rig/aggregator) chránil.
+  Jakákoli výjimka v tomto kroku (i validní config, i úspěšný
+  `build_app_state()`) by spadla na nezachyceném tracebacku -- stejná
+  třída "Station Agent nejde spustit" jako předchozích 10 oprav výše, jen
+  odhalená v ještě pozdějším kroku startu. Volání je teď obalené vlastním
+  `try/except Exception`, který zaloguje akční hlášku a uklidí už
+  otevřené `db`/`rig`/`aggregator` před návratem s exit kódem 1 -- stejný
+  vzor jako u `create_server`/`OSError` výše. Regresní test (mockuje
+  selhání, protože reálný řetězec s platnou konfigurací dnes neselhává --
+  jde o strukturální pojistku, ne o konkrétní dnes existující vstup):
+  `tests/test_cli_sources.py::MissingConfigStartupTests::test_main_exits_cleanly_when_initial_candidate_refresh_fails`.
+
 ### Doplňkové zjištění: tichá (ne pádová) chyba v `_MiniYamlParser` u předvoleb
 
 Při hledání dalších tříd "nejde spustit" jsem narazil na příbuznou, ale
@@ -197,6 +213,7 @@ orchestrátor, viz runtime contract):
 - `tests/test_config.py::LoadConfigTests::test_mini_yaml_parser_parses_config_example_presets_correctly`
 - `tests/test_cli_sources.py::MissingConfigStartupTests::test_main_exits_cleanly_when_web_port_is_already_in_use`
 - `tests/test_cli_sources.py::MissingConfigStartupTests::test_main_exits_cleanly_when_database_file_is_not_a_valid_sqlite_file`
+- `tests/test_cli_sources.py::MissingConfigStartupTests::test_main_exits_cleanly_when_initial_candidate_refresh_fails`
 
 Syntax ověřen `python -m py_compile` po každé změně -- OK. `git diff --check`
 nad změnami -- čistý, žádné whitespace chyby. Celý běh `python -m pytest -q`

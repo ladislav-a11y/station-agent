@@ -179,7 +179,26 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         logger.error("Konfigurace '%s' je neplatná: %s", args.config, exc)
         return 1
-    app_state.refresh_candidates()
+
+    try:
+        # Počáteční naplnění kandidátů běží synchronně před spuštěním web
+        # serveru (viz refresh_candidates -- volá aggregator.poll_once,
+        # DB purge i build_candidates/scoring). Dřív běželo úplně mimo
+        # try/except v main() -- selhání kdekoli v tomto řetězci (např.
+        # neočekávaná hodnota z scoring/propagation) by spadlo na
+        # nezachyceném tracebacku přesto, že load_config() i
+        # build_app_state() proběhly v pořádku, stejná třída "Station
+        # Agent nejde spustit" jako ostatní opravy v DIAGNOSIS_P5.md.
+        app_state.refresh_candidates()
+    except Exception as exc:
+        logger.error(
+            "Počáteční načtení kandidátů selhalo, Station Agent se nespustí: %s",
+            exc,
+        )
+        app_state.aggregator.close()
+        app_state.db.close()
+        app_state.rig.close()
+        return 1
 
     loop = PollingLoop(app_state, interval_seconds=args.poll_interval)
     loop.start()

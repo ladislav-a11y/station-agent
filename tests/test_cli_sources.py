@@ -4,6 +4,7 @@ import socket
 import unittest
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 from station_agent.adapters.dx_cluster import DXClusterAdapter, RECOMMENDED_PROVIDERS
 from station_agent.cli import build_app_state, build_sources, main
@@ -220,6 +221,41 @@ class MissingConfigStartupTests(unittest.TestCase):
         log_output = "\n".join(logs.output)
         self.assertIn(config_path, log_output)
         self.assertIn("neplatn", log_output)
+
+    def test_main_exits_cleanly_when_initial_candidate_refresh_fails(self):
+        """Regrese: `app_state.refresh_candidates()` (počáteční synchronní
+        naplnění kandidátů, volané před spuštěním web serveru -- viz
+        aggregator.poll_once/DB purge/build_candidates/scoring) běželo
+        původně MIMO jakýkoli try/except v main(). Selhání kdekoli v tomto
+        řetězci by spadlo na nezachyceném tracebacku přesto, že
+        load_config() i build_app_state() proběhly v pořádku -- stejná
+        třída "Station Agent nejde spustit" jako ostatní opravy v
+        DIAGNOSIS_P5.md. Reálný scoring/DB řetězec s platnou konfigurací
+        neselhává, proto se selhání vynucuje mockem -- jde o strukturální
+        pojistku pro neočekávané výjimky v tomto kroku startu, ne o
+        konkrétní dnes existující vstup, který by ho spustil."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = str(Path(temp_dir) / "config.yaml")
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            Path(config_path).write_text(
+                "database:\n"
+                f"  path: {database_path}\n"
+                "sources:\n"
+                "  mock:\n"
+                "    enabled: false\n"
+                "propagation:\n"
+                "  enabled: false\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "station_agent.cli.AppState.refresh_candidates",
+                side_effect=RuntimeError("boom"),
+            ):
+                with self.assertLogs("station_agent.cli", level="ERROR") as logs:
+                    exit_code = main(["--config", config_path])
+        self.assertEqual(exit_code, 1)
+        log_output = "\n".join(logs.output)
+        self.assertIn("boom", log_output)
 
     def test_main_exits_cleanly_when_web_port_is_already_in_use(self):
         """Regrese: web.port je v platnem rozsahu 0-65535 (WebConfig
