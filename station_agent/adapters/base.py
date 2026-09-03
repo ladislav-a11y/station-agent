@@ -13,6 +13,13 @@ class SpotSource(ABC):
 
     name: str = "base"
 
+    #: Minimální doba (s) mezi dvěma reálnými dotazy na tento konkrétní zdroj,
+    #: kterou ``Aggregator`` vynutí bez ohledu na (nižší) ``polling.
+    #: source_interval_seconds`` z configu -- viz ``PSKReporterAdapter``,
+    #: jehož veřejné API vrací HTTP 429 i při obecném 60s minimu. ``0``
+    #: znamená "žádné dodatečné omezení nad rámec configu".
+    min_poll_interval_seconds: float = 0.0
+
     @abstractmethod
     def fetch(self) -> list[Spot]:
         """Vrátí aktuální dávku spotů. Musí být bezpečné volat opakovaně."""

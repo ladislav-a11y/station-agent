@@ -238,7 +238,11 @@ class Aggregator:
         self.pollers: list[PolledSource] = [
             PolledSource(
                 source,
-                interval_seconds=source_poll_interval_seconds,
+                # Některé zdroje (viz SpotSource.min_poll_interval_seconds,
+                # např. PSKReporterAdapter) potřebují přísnější minimum, než
+                # jaké má uživatel nastavené v configu -- zabraňuje to HTTP
+                # 429 i při nízkém polling.source_interval_seconds.
+                interval_seconds=max(source_poll_interval_seconds, source.min_poll_interval_seconds),
                 backoff_max_seconds=source_backoff_max_seconds,
             )
             for source in sources

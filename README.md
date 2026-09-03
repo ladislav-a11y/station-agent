@@ -252,10 +252,13 @@ Frekvence GUI refreshe (viz `web/static/app.js`, každých 5 s) je záměrně
 oddělená od frekvence reálných dotazů na živé zdroje jako PSKReporter --
 `Aggregator`/`PolledSource` (`station_agent/adapters/polling.py`) na síť
 sáhne nejvýš jednou za `polling.source_interval_seconds` z configu
-(výchozí 60 s), mezitím vrací naposledy úspěšně stažená data. Při HTTP 429
-(Too Many Requests) se zdroj přepne do backoffu -- respektuje `Retry-After`
-hlavičku, jinak čeká exponenciálně rostoucí interval -- a stav/poslední
-chybu každého zdroje lze zjistit v `/api/status` (`sources`).
+(výchozí 60 s), mezitím vrací naposledy úspěšně stažená data. PSKReporter
+navíc i při nižším configovém intervalu v reálném provozu vrací HTTP 429,
+proto pro něj `Aggregator` vynucuje vlastní přísnější minimum 300 s
+(`PSKReporterAdapter.min_poll_interval_seconds`) bez ohledu na config. Při
+HTTP 429 (Too Many Requests) se zdroj přepne do backoffu -- respektuje
+`Retry-After` hlavičku, jinak čeká exponenciálně rostoucí interval -- a
+stav/poslední chybu každého zdroje lze zjistit v `/api/status` (`sources`).
 
 ## Konfigurace
 

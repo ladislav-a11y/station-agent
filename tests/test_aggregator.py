@@ -1,8 +1,10 @@
 import time
 import unittest
 
+from station_agent.adapters.base import SpotSource
 from station_agent.adapters.dx_cluster import DXClusterAdapter
 from station_agent.adapters.mock import MockAdapter
+from station_agent.adapters.pskreporter import PSKReporterAdapter
 from station_agent.aggregator import (
     Aggregator,
     attach_dxcc_and_bearing,
@@ -301,6 +303,30 @@ class AggregatorPollingThrottleTests(unittest.TestCase):
         aggregator.poll_once(now=1003.0)  # throttlováno, ale kandidáti musí zůstat dostupní
         candidates = aggregator.build_candidates(now=1003.0)
         self.assertGreater(len(candidates), 0)
+
+    def test_pskreporter_enforces_its_own_stricter_minimum_interval_even_if_config_is_lower(self):
+        # Reprodukuje live problém z popisu úlohy: i s obecným configovým
+        # minimem 60 s vrací PSKReporter reálně HTTP 429 ("Zdroj pskreporter
+        # vrátil HTTP 429, backoff na 60 s (pokus č. 1)"). Aggregator proto
+        # musí pro tento konkrétní zdroj vynutit jeho vlastní vyšší minimum
+        # (PSKReporterAdapter.min_poll_interval_seconds), i když uživatel v
+        # configu nastaví nižší polling.source_interval_seconds.
+        aggregator = Aggregator(
+            [PSKReporterAdapter()], self.db, self.scoring_cfg, source_poll_interval_seconds=60
+        )
+        poller = aggregator.pollers[0]
+        self.assertEqual(poller.interval_seconds, PSKReporterAdapter.min_poll_interval_seconds)
+        self.assertGreater(poller.interval_seconds, 60)
+
+    def test_source_without_own_minimum_uses_configured_interval_unchanged(self):
+        class _PlainSource(SpotSource):
+            name = "plain"
+
+            def fetch(self):
+                return []
+
+        aggregator = Aggregator([_PlainSource()], self.db, self.scoring_cfg, source_poll_interval_seconds=60)
+        self.assertEqual(aggregator.pollers[0].interval_seconds, 60)
 
 
 if __name__ == "__main__":

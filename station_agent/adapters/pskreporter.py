@@ -34,6 +34,14 @@ DEFAULT_QUERY_URL = "https://retrieve.pskreporter.info/query"
 DEFAULT_TIMEOUT_S = 15.0
 USER_AGENT = "station-agent/1.0 (DX asistent; https://www.pskreporter.info/pskdev.html)"
 
+# PSKReporter query API v reálném provozu vrací HTTP 429 i při obecném
+# configovém minimu 60 s (viz log "Zdroj pskreporter vrátil HTTP 429,
+# backoff na 60 s (pokus č. 1)") -- 60 s je bezpečné obecné minimum pro
+# budoucí zdroje, ale pro PSKReporter samotný nestačí. Aggregator (viz
+# aggregator.py) proto pro tento zdroj vynucuje aspoň tento interval bez
+# ohledu na nižší ``polling.source_interval_seconds`` z configu.
+MIN_POLL_INTERVAL_SECONDS = 300.0
+
 
 def parse_pskreporter_report(xml_text: str) -> list[Spot]:
     """Naparsuje XML odpověď PSKReporter query API na seznam Spot.
@@ -143,6 +151,7 @@ class PSKReporterAdapter(SpotSource):
     """
 
     name = "pskreporter"
+    min_poll_interval_seconds = MIN_POLL_INTERVAL_SECONDS
 
     def __init__(
         self,
