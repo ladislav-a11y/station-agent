@@ -150,3 +150,36 @@
   `DATA_CONTRACT.md` (fail-open `pending`/`ok` přechody). Žádný kód v
   `station_agent/` touto iterací nebyl měněn, jde čistě o dokumentované
   nezávislé ověření již existující opravy pod skutečnou zátěží.
+
+## Oprava logiky spouštění AUTO TUNE po vypršení doby držení -- 03.09.2026
+
+* Vyřízen Inbox požadavek "Station Agent -- oprava logiky spouštění
+  autotune po vypršení doby držení": po ručním NALADIT (tlačítko v GUI)
+  `AppState.manual_tune()` natrvalo vypínal AUTO TUNE (`enabled=False`) a
+  zapínal HOLD (`hold=True`), ale nic HOLD nikdy automaticky nevypnulo --
+  `AutoTuneEngine.decide()` se na `cfg.enabled` ptal ještě před kontrolou
+  HOLD, takže AUTO TUNE zůstal navždy vypnutý i po libovolně dlouhé době
+  (dávno za `min_hold_seconds`), dokud operátor ručně neklikl na AUTO TUNE
+  v GUI.
+* Oprava (commit `9672bb9`): `AutoTuneEngine.decide()`
+  (`station_agent/autotune.py`) na začátku vyhodnocení zkontroluje, jestli
+  je HOLD aktivní a od `current.tuned_at` uplynulo aspoň
+  `min_hold_seconds` -- pokud ano, `cfg.hold=False`/`cfg.enabled=True` a
+  pokračuje běžným vyhodnocením. `PollingLoop._run()` volá
+  `run_autotune_cycle()` v každém cyklu, takže se auto-expirace HOLD
+  vyhodnotí i bez zásahu operátora, ne jen při další ruční akci.
+* Cosmetic API pole `hold_remaining_seconds` (vždy `None`,
+  `web/server.py::_build_status`) zůstává záměrně beze změny -- GUI během
+  aktivního HOLD schválně nezobrazuje odpočet (`test_manual_tune.py::
+  test_manual_tune_reports_no_countdown_while_hold_active`), to je mimo
+  rozsah tohoto bugu.
+* Regresní testy (beze změny od commitu `9672bb9`, touto iterací pouze
+  znovu ověřeny): `tests/test_autotune.py::AutoTuneEngineTests::
+  test_hold_blocks_until_min_hold_seconds_elapses_since_current_tuned_at`,
+  `::test_hold_auto_expires_after_min_hold_seconds_and_autotune_resumes`,
+  `::test_hold_expiry_ignored_when_no_current_station`;
+  `tests/test_manual_tune.py::ManualTuneAppStateTests::
+  test_manual_tune_then_hold_expiry_autoresumes_autotune_without_manual_action`.
+* Žádná další změna kódu v `station_agent/` touto iterací -- oprava byla
+  funkčně kompletní už v `9672bb9`, jde o doplnění chybějícího záznamu o
+  vyřízení tohoto konkrétního Inbox požadavku do `PROJECT_NOTES.md`.
