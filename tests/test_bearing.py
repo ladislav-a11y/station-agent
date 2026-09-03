@@ -24,6 +24,34 @@ class MaidenheadTests(unittest.TestCase):
             maidenhead_to_latlon("XX")
         with self.assertRaises(ValueError):
             maidenhead_to_latlon("1234")
+        with self.assertRaises(ValueError):
+            maidenhead_to_latlon("JN79FGX")  # lichý počet znaků
+        with self.assertRaises(ValueError):
+            maidenhead_to_latlon("JN79FG1X")  # 7.-8. znak musí být číslice
+
+    def test_eight_char_extended_locator(self):
+        # Reálně vrací PSKReporter (senderLocator) -- viz LIVE_EVIDENCE.md.
+        # 8 znaků musí zpřesnit polohu oproti 6znakovému prefixu, ne ho
+        # tiše ignorovat.
+        lat6, lon6 = maidenhead_to_latlon("JN79FG")
+        lat8, lon8 = maidenhead_to_latlon("JN79FG12")
+        self.assertNotAlmostEqual(lat6, lat8, places=4)
+        self.assertNotAlmostEqual(lon6, lon8, places=4)
+        # Střed 8znakového pole musí ležet uvnitř 6znakového pole (šířka
+        # 2/24 stupně lon, 1/24 stupně lat).
+        self.assertAlmostEqual(lat8, lat6, delta=1.0 / 24.0)
+        self.assertAlmostEqual(lon8, lon6, delta=2.0 / 24.0)
+
+    def test_ten_char_extended_locator_from_real_pskreporter_data(self):
+        # Skutečné hodnoty senderLocator z živého PSKReporter query API
+        # (viz LIVE_EVIDENCE.md, iterace "live test v PowerShell") -- dřív
+        # tyto (validní) locatory shodily bearing na "Neplatná délka".
+        lat, lon = maidenhead_to_latlon("JO49UC21QH")
+        self.assertTrue(-90.0 <= lat <= 90.0)
+        self.assertTrue(-180.0 <= lon <= 180.0)
+        lat6, lon6 = maidenhead_to_latlon("JO49UC")
+        self.assertAlmostEqual(lat, lat6, delta=1.0 / 24.0)
+        self.assertAlmostEqual(lon, lon6, delta=2.0 / 24.0)
 
 
 class BearingDistanceTests(unittest.TestCase):

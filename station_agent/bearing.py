@@ -13,31 +13,53 @@ EARTH_RADIUS_KM = 6371.0088
 
 
 def maidenhead_to_latlon(locator: str) -> tuple[float, float]:
-    """Převede Maidenhead locator (4 nebo 6 znaků) na (lat, lon) ve stupních.
+    """Převede Maidenhead locator (4, 6, 8 nebo 10 znaků) na (lat, lon) ve stupních.
+
+    Podporuje i "extended" precision (8/10 znaků), kterou reálně vrací
+    PSKReporter (senderLocator) pro část stanic -- viz LIVE_EVIDENCE.md
+    ("live test v PowerShell"): pár po dvojici znaků dál střídavě zpřesňuje
+    pozici (6.-7. znak = extended square, číslice 0-9; 9.-10. znak =
+    extended subsquare, písmena A-X), stejně jako subsquare (5.-6. znak)
+    zpřesňuje square. Bez podpory těchto delších locatorů by se u ~10 %
+    reálných PSKReporter kandidátů zahazoval platný bearing jako "neplatná
+    délka", ačkoliv jde o formálně správný, jen přesnější locator.
 
     Vrací souřadnice středu příslušného pole/čtverce/podčtverce.
     """
     loc = locator.strip().upper()
-    if len(loc) not in (4, 6, 8):
+    if len(loc) not in (4, 6, 8, 10):
         raise ValueError(f"Neplatná délka Maidenhead locatoru: {locator!r}")
     if not (loc[0].isalpha() and loc[1].isalpha() and loc[2].isdigit() and loc[3].isdigit()):
         raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
 
-    lon = (ord(loc[0]) - ord("A")) * 20.0 - 180.0
-    lat = (ord(loc[1]) - ord("A")) * 10.0 - 90.0
-    lon += int(loc[2]) * 2.0
-    lat += int(loc[3]) * 1.0
+    lon = (ord(loc[0]) - ord("A")) * 20.0 - 180.0 + int(loc[2]) * 2.0
+    lat = (ord(loc[1]) - ord("A")) * 10.0 - 90.0 + int(loc[3]) * 1.0
+    lon_size = 2.0
+    lat_size = 1.0
 
-    if len(loc) >= 6:
-        if not (loc[4].isalpha() and loc[5].isalpha()):
-            raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
-        lon += (ord(loc[4]) - ord("A")) * (2.0 / 24.0)
-        lat += (ord(loc[5]) - ord("A")) * (1.0 / 24.0)
-        lon += (2.0 / 24.0) / 2.0
-        lat += (1.0 / 24.0) / 2.0
-    else:
-        lon += 1.0
-        lat += 0.5
+    pos = 4
+    use_letters = True  # 5.-6. znak (subsquare) jsou písmena, 7.-8. číslice, 9.-10. zase písmena, ...
+    while pos < len(loc):
+        a, b = loc[pos], loc[pos + 1]
+        if use_letters:
+            if not (a.isalpha() and b.isalpha()):
+                raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
+            divisions = 24.0
+            idx_lon, idx_lat = ord(a) - ord("A"), ord(b) - ord("A")
+        else:
+            if not (a.isdigit() and b.isdigit()):
+                raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
+            divisions = 10.0
+            idx_lon, idx_lat = int(a), int(b)
+        lon_size /= divisions
+        lat_size /= divisions
+        lon += idx_lon * lon_size
+        lat += idx_lat * lat_size
+        pos += 2
+        use_letters = not use_letters
+
+    lon += lon_size / 2.0
+    lat += lat_size / 2.0
 
     return lat, lon
 

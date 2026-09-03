@@ -143,3 +143,42 @@ po reálném připojení a přihlášení vrátil **10 spotů** (první `UT7QF`,
 Telnet zdroje při prvním spojení zaznamenaly přechodnou chybu socketu,
 vlastní reconnect/backoff ji zotavil a oba následně doručily platná data.
 Jde tedy zároveň o živý důkaz funkce zotavení, nikoli pouze ideálního toku.
+
+## 6. Celý proces (`python -m station_agent --config config.yaml`) v PowerShellu/živě -- Inbox "Station agent -- live test v PowerShell"
+
+Cíl: reálně spustit produkční vstupní bod (ne jen jednotlivé adaptéry jako
+v sekcích 1-5) v aktuálním `config.yaml` (rig.mode: live, sources dx_cluster/
+rbn/pskreporter enabled: true) a ověřit chování celého procesu, ne izolovaných
+tříd. Rig (IC-7300 přes rigctld) fyzicky připojený k dispozici není -- to je
+nutně krok, který může provést jen uživatel na svém vlastním stroji s
+připojeným rádiem; agent ověřil vše, co je bez fyzického riggu ověřitelné.
+
+- **rigctld nedostupný -> korektní odbržení, ne pád.** Se skutečným
+  `rig.mode: live` a žádným `rigctld` na `127.0.0.1:4532` proces nespadl --
+  `build_app_state()` zachytil `[WinError 10061] ... cílový počítač je
+  aktivně odmítl` a pokračoval s `current_rig_state == None` (přesně
+  fail-open vzor zdokumentovaný v `cli.py::build_app_state`). GUI i status
+  endpoint fungují dál bez riggu -- ověřuje, že "live mód bez fyzického
+  riggu" je bezpečný a použitelný stav, ne pád.
+- **Živé zdroje spotů běžely souběžně s ostrým configem** (ne jen izolovaně
+  jako v sekcích 1-3) -- PSKReporter dorazil hned s prvním pollem (jedno
+  HTTP 429 se zotavilo přes existující backoff, viz sekce "Zlepšit
+  PSKReporter polling" v `NEXT_DOD.md`), web GUI se nastartovalo a
+  `/api/status` i `/api/candidates` po ustálení startovní zátěže odpověděly
+  200 OK.
+- **Nalezený a opravený reálný bug**, který se mockem/fixture daty nedal
+  odhalit: PSKReporter u části stanic (živě naměřeno ~10 % z 1510 spotů)
+  vrací `senderLocator` v rozšířené přesnosti (8 nebo 10 znaků, např.
+  `JO49UC21QH`, `KN97WC44TT`) -- validní Maidenhead formát, ne poškozená
+  data. `bearing.py::maidenhead_to_latlon` přijímal jen délky (4, 6, 8) a u
+  8 znaků poslední dvojici číslic tiše ignoroval, takže 10znakové locatory
+  tvrdě padaly na `Neplatná délka Maidenhead locatoru` a bearing se pro tyto
+  reálné kandidáty vůbec nepočítal (spadl na DXCC referenční bod). Opraveno:
+  funkce teď zpracovává 4/6/8/10znaké locatory se správným zpřesněním na
+  každé úrovni (viz `tests/test_bearing.py::test_eight_char_extended_locator`
+  a `test_ten_char_extended_locator_from_real_pskreporter_data`, druhý test
+  používá skutečnou hodnotu `JO49UC21QH` z tohoto živého běhu).
+- **Ověřovací skript nebyl součástí commitu** (`_live_smoke_test.py`,
+  dočasný, spouští `python -m station_agent --config config.yaml` jako
+  subprocess a hlídá `/api/status`+`/api/candidates`) -- smazán po zachycení
+  výstupu, stejný princip jako u sekce 4 výše.

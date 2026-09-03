@@ -73,3 +73,20 @@
 * Žádná změna kódu v `station_agent/` -- vše potřebné bylo už dřív hotové a
   živě ověřené, šlo jen o konfigurační přepnutí v uživatelově vlastním
   souboru.
+
+## Live test v PowerShell -- 03.09.2026
+
+* Vyřízen Inbox požadavek "Station agent -- live test v PowerShell" v
+  rozsahu, který jde ověřit bez fyzicky připojeného IC-7300 (viz
+  `LIVE_EVIDENCE.md` bod 6): `python -m station_agent --config config.yaml`
+  s ostrým `config.yaml` (rig.mode live, dx_cluster/rbn/pskreporter
+  enabled) skutečně naběhl, GUI i `/api/status`/`/api/candidates`
+  odpověděly, chybějící rigctld se odbrzdil korektně (fail-open, ne pád).
+* Nalezen a opraven reálný bug objevený jen díky živým datům:
+  `bearing.py::maidenhead_to_latlon` odmítal validní 8/10znakové rozšířené
+  Maidenhead locatory, které PSKReporter reálně posílá u části stanic --
+  bearing se tak ztrácel u ~10 % živých kandidátů. Opraveno + regresní
+  testy v `tests/test_bearing.py`.
+* Fyzické připojení IC-7300 přes `rigctld` zůstává na uživateli -- v tomto
+  prostředí není žádný rig k dispozici, jde o nutně manuální krok mimo
+  dosah agenta.
