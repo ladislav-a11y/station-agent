@@ -123,3 +123,30 @@
   soubor na disku skutečně zmenší, ne jen vyprázdní řádky).
 * Mimo rozsah beze změny -- žádný adaptér, scoring, rig ani web GUI kód
   nebyl dotčen.
+
+## Nezávislé opětovné ověření opravy pod živou zátěží -- 03.09.2026
+
+* Vyřízen Inbox požadavek "Station agent -- oprava nalezeného problému":
+  nezávisle ověřeno, že oprava růstu `station_agent.sqlite3` (sekce výše,
+  `Database._enable_incremental_vacuum()` + `purge_older_than()` volající
+  `PRAGMA incremental_vacuum`) skutečně drží soubor na disku malý i po
+  reálném běhu celého procesu, ne jen v testech na `:memory:`/dočasném
+  souboru.
+* Postup: `python -m station_agent --config config.yaml` (ostrý config,
+  `rig.mode: live`, `sources.dx_cluster/rbn/pskreporter.enabled: true`)
+  spuštěn jako reálný proces, `/api/status` a `/api/candidates` dotázány
+  přes `urllib.request` v běhu. PSKReporter doručil 1509 živých spotů,
+  `dx_cluster`/`rbn` korektně `status: pending` během navazování telnet
+  spojení (žádný pád, žádná nová anomálie v logu -- jediný log řádek byl
+  startovní `Station Agent GUI na http://127.0.0.1:8765 (rig mode=live)`).
+* Přímo na `station_agent.sqlite3` použitém tímto živým během (5000 vložených
+  spotů přes reálný `insert_spots`/`purge_older_than` cyklus): `PRAGMA
+  auto_vacuum` vrátilo `2` (INCREMENTAL), `PRAGMA freelist_count` `0`,
+  velikost souboru na disku `626 688` bajtů -- oprava tedy funguje i mimo
+  jednorázový test, freelist se nehromadí ani po opakovaném vkládání a
+  mazání pod reálným provozem.
+* Žádný nový bug nebyl touto nezávislou live verifikací odhalen -- proces
+  startuje čistě, GUI/API odpovídají, zdroje se chovají podle
+  `DATA_CONTRACT.md` (fail-open `pending`/`ok` přechody). Žádný kód v
+  `station_agent/` touto iterací nebyl měněn, jde čistě o dokumentované
+  nezávislé ověření již existující opravy pod skutečnou zátěží.
