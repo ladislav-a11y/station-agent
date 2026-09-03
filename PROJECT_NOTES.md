@@ -183,3 +183,33 @@
 * Žádná další změna kódu v `station_agent/` touto iterací -- oprava byla
   funkčně kompletní už v `9672bb9`, jde o doplnění chybějícího záznamu o
   vyřízení tohoto konkrétního Inbox požadavku do `PROJECT_NOTES.md`.
+
+## Opakované nezávislé ověření -- iterace 2/10 -- 03.09.2026
+
+* Přístup k Trello Inbox (`trelloReadInbox`/`trelloSearch`) byl v tomto
+  běhu opět zamítnut oprávněním (stejně jako minulou iteraci) -- přesný
+  text/scénář karty tedy nelze z Trello přímo dohledat. Postupováno podle
+  runtime contractu (agent nesmí Trello číst sám -- řízení je `AI Project
+  Manager -> ai-orchestrator -> agents`, PM zadání už předal v promptu).
+* Znovu nezávisle ověřen scénář popsaný v `DIAGNOSIS_P5.md`/
+  `AUDIT_EVIDENCE_P5.md` ("Station Agent nejde spustit"): všech 20
+  jmenovaných regresních testů (`tests/test_config.py`,
+  `tests/test_cli_sources.py`) v checkoutu skutečně existuje přesně
+  jednou, `station_agent/cli.py::build_app_state`/`main` obsahují
+  odpovídající `try/except` větve pro všech 11 popsaných tříd chyb
+  (`FileNotFoundError`, `ValueError`, `TypeError`, `sqlite3.DatabaseError`,
+  `OSError`) s úklidem `db`/`rig`/`aggregator` přesně podle dokumentu.
+  `ast.parse` nad `config.py`/`cli.py`/oběma testovacími soubory bez chyby.
+  Žádný z 5 commitů mezi HEAD `6512676` (kdy vznikla `AUDIT_EVIDENCE_P5.md`)
+  a aktuálním HEAD se `cli.py`/`config.py` vůbec nedotkl (viz `git log
+  --stat`), takže scénář P5 zůstává neporušený.
+* Nejnovější popsaný scénář v projektu -- AUTO TUNE HOLD auto-expiry (sekce
+  výše) -- byl touto iterací opět staticky ověřen (`autotune.py::decide`,
+  `tests/test_autotune.py`, `tests/test_manual_tune.py`): beze změny od
+  minulé iterace, logika i testy zůstávají konzistentní.
+* Výsledek testů z minulé iterace (`python -m pytest -q`), ověřeno
+  orchestrátorem: PROŠLY.
+* Žádná změna produkčního kódu v `station_agent/` touto iterací -- oba
+  nezávisle ověřené scénáře jsou funkčně beze změny a bez nalezené regrese;
+  jde čistě o doplnění důkazního záznamu pro nezávislý audit
+  ai-orchestrátoru, který jediný smí vynést verdikt `accepted`/`rejected`.
