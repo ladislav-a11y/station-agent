@@ -56,3 +56,20 @@
 \- Spoty se převádí do interního modelu Spot.
 
 \- Kompletní testy: 192 passed.
+
+## Přepnutí na reálný provoz -- 03.09.2026
+
+* Vyřízen Inbox požadavek "Station agent -- přepnutí na reálný režim".
+* Lokální `config.yaml` (gitignored, mimo repozitář) přepnut na připravené
+  a živě ověřené části (viz `LIVE_EVIDENCE.md`): `station.callsign: OK1RPL`,
+  `station.qth_locator: JN69QR`, `rig.mode: live`, `sources.mock.enabled:
+  false`, `sources.dx_cluster/rbn/pskreporter.enabled: true`.
+* `log4om.enabled` zůstává `false` -- payload proti reálné instanci Log4OM2
+  není ověřený (viz `AUDIT_MOCK_MODE.md` bod 3), tedy není "připravená
+  část" ve smyslu Inbox požadavku.
+* Alternativní DX Cluster uzly (`dx_cluster_hamserve/ea7jxh/m0mhx`) zůstávají
+  vypnuté -- jde o volitelné náhrady primárního uzlu, ne o další povinný
+  souběžný zdroj.
+* Žádná změna kódu v `station_agent/` -- vše potřebné bylo už dřív hotové a
+  živě ověřené, šlo jen o konfigurační přepnutí v uživatelově vlastním
+  souboru.
