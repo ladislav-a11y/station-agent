@@ -140,6 +140,26 @@ class WebApiTests(unittest.TestCase):
             for key in ("key", "label", "bands", "modes"):
                 self.assertIn(key, preset)
 
+    def test_status_endpoint_reports_bearing_distance_country_for_tuned_rig(self):
+        """Bearing/vzdálenost/země musí být u rig live, ne jen u kandidátů."""
+        self.app_state.current_rig_state = RigState(
+            freq_hz=14_195_000, mode="SSB", tuned_at=1000.0, callsign="DX1AA",
+            score=50, country="Testlandia", bearing_deg=123.4, distance_km=5678.0,
+        )
+        try:
+            status, _, body = self._get("/api/status")
+            self.assertEqual(status, 200)
+            rig = json.loads(body)["rig"]
+            self.assertEqual(rig["country"], "Testlandia")
+            self.assertEqual(rig["bearing_deg"], 123.4)
+            self.assertEqual(rig["distance_km"], 5678.0)
+        finally:
+            self.app_state.current_rig_state = None
+
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn("rig.country", script)
+
     def test_status_and_gui_expose_current_kp_in_header_corner(self):
         context = PropagationContext(
             kp=4.0, solar_flux=130.0, observed_at=1_700_000_000.0,

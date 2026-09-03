@@ -38,6 +38,11 @@ class ManualTuneAppStateTests(unittest.TestCase):
         self.assertEqual(self.app_state.rig.get_mode(), target.mode)
         self.assertIsNotNone(self.app_state.current_rig_state)
         self.assertEqual(self.app_state.current_rig_state.callsign, target.callsign)
+        # Bearing/vzdálenost/země musí být na rig live k dispozici stejně
+        # jako u kandidáta, ne jen v seznamu kandidátů.
+        self.assertEqual(self.app_state.current_rig_state.country, target.country)
+        self.assertEqual(self.app_state.current_rig_state.bearing_deg, target.bearing_deg)
+        self.assertEqual(self.app_state.current_rig_state.distance_km, target.distance_km)
         self.assertIs(self.app_state.last_decision, decision)
         self.assertIn("NALADIT", decision.reason)
 

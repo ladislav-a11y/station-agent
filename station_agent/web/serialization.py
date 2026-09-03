@@ -60,6 +60,7 @@ def rig_state_to_dict(state: RigState | None) -> dict | None:
         "callsign": state.callsign,
         "tuned_at": state.tuned_at,
         "score": state.score,
+        "country": state.country,
         "bearing_deg": state.bearing_deg,
         "distance_km": state.distance_km,
     }

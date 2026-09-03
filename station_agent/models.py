@@ -98,5 +98,6 @@ class RigState:
     tuned_at: float
     callsign: str | None = None
     score: int | None = None
+    country: str | None = None
     bearing_deg: float | None = None
     distance_km: float | None = None

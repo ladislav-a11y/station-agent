@@ -211,8 +211,9 @@ function renderRigStatus(status) {
     return;
   }
   const call = rig.callsign ? ` -- ${rig.callsign}` : "";
+  const country = rig.country ? ` -- ${rig.country}` : "";
   const path = rig.bearing_deg == null ? "" : ` -- ${rig.bearing_deg.toFixed(0)}° / ${rig.distance_km == null ? "?" : rig.distance_km.toFixed(0)} km`;
-  el.textContent = `rig (${status.rig_mode}): ${(rig.freq_hz / 1e6).toFixed(3)} MHz ${rig.mode}${call}${path}`;
+  el.textContent = `rig (${status.rig_mode}): ${(rig.freq_hz / 1e6).toFixed(3)} MHz ${rig.mode}${call}${country}${path}`;
 }
 
 function renderPropagation(status) {
