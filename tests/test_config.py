@@ -297,6 +297,16 @@ class QRZConfigSafetyTests(unittest.TestCase):
         cfg = QRZConfig(enabled=True, username="OK1ABC", password="secret")
         self.assertTrue(cfg.enabled)
 
+    def test_repr_never_exposes_plaintext_password(self):
+        cfg = QRZConfig(enabled=True, username="OK1ABC", password="s3cr3t-p4ss")
+        self.assertNotIn("s3cr3t-p4ss", repr(cfg))
+        self.assertNotIn("s3cr3t-p4ss", str(cfg))
+        self.assertIn("OK1ABC", repr(cfg))
+
+    def test_repr_of_empty_password_does_not_claim_it_is_set(self):
+        cfg = QRZConfig()
+        self.assertNotIn("***", repr(cfg))
+
     def test_rejects_non_positive_timeout(self):
         with self.assertRaises(ValueError):
             QRZConfig(timeout_s=0)

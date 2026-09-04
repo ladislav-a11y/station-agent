@@ -538,3 +538,26 @@
 * Mimo rozsah beze změny: `dxcc.py`, `aggregator.py`, `adapters/qrz.py`,
   `autotune.py`/`models.py` (RigState.country zůstává pravdivě `None`,
   "?" je jen prezentační vrstva, stejně jako u kandidátů) nebyly dotčeny.
+
+## Ochrana QRZ hesla proti náhodnému úniku přes repr/log -- iterace 2/10 -- 04.09.2026
+
+* Doplňující zpevnění stejného rozsahu (ochrana credentials k QRZ.com):
+  `config.py::QRZConfig` byla obyčejná `@dataclass` bez vlastního
+  `__repr__` -- kdyby se instance (nebo obalující `Config`) někdy dostala
+  do `repr()`/`str()`/logu/výjimky (např. budoucí debug výpis, traceback
+  se zachyceným argumentem), vytisklo by se `qrz.password` v čistém textu.
+  Aktuálně k tomu nikde v `cli.py`/`config.py` nedochází (ověřeno), ale
+  jde o obecné latentní riziko přesně v rozsahu "ochrana credentials".
+* Oprava: `QRZConfig.__repr__` je nyní explicitní a `password` maskuje na
+  `"***"` (jen když je vyplněné, jinak `""`, aby prázdný `repr` nepředstíral
+  nastavené heslo) -- `username`/ostatní pole zůstávají viditelná pro
+  diagnostiku. `enabled`/přihlašovací validace v `__post_init__` beze
+  změny.
+* Regresní testy (`tests/test_config.py::QRZConfigSafetyTests`):
+  `test_repr_never_exposes_plaintext_password` (heslo se nesmí objevit v
+  `repr()`/`str()`), `test_repr_of_empty_password_does_not_claim_it_is_set`
+  (prázdné heslo se nesmí maskovat na `"***"`, aby log neklamal, že je
+  vyplněné).
+* Mimo rozsah beze změny: `adapters/qrz.py` (síťová vrstva/cache/backoff
+  z iterace 1/10 nedotčena), `aggregator.py`, `cli.py`, žádný jiný
+  konfigurační dataclass.

@@ -358,6 +358,18 @@ class QRZConfig:
     timeout_s: float = 10.0
     cache_ttl_seconds: float = 86400.0
 
+    def __repr__(self) -> str:
+        # dataclass repr(field=False) jen vypustí pole -- výslovný __repr__
+        # navíc dá najevo, že heslo je vyplněné, bez otisku samotné hodnoty
+        # (viz test_config.py::QRZConfigSafetyTests -- žádný log/repr
+        # výpis config objektu nesmí nikdy vytisknout přihlašovací heslo).
+        password_marker = "***" if self.password else ""
+        return (
+            f"QRZConfig(enabled={self.enabled!r}, username={self.username!r}, "
+            f"password={password_marker!r}, base_url={self.base_url!r}, "
+            f"timeout_s={self.timeout_s!r}, cache_ttl_seconds={self.cache_ttl_seconds!r})"
+        )
+
     def __post_init__(self) -> None:
         if self.enabled and not (self.username and self.password):
             raise ValueError(
