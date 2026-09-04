@@ -343,6 +343,33 @@ class PollingConfig:
 
 
 @dataclass
+class QRZConfig:
+    """Obecný síťový fallback pro DXCC/zemi, když PREFIX_TABLE (dxcc.py)
+    pro daný callsign nic nenajde -- viz DIAGNOSIS_DXCC_PREFIX_GAP.md a
+    adapters/qrz.py. Defaultně vypnuto (stejný princip jako ostatní živé
+    zdroje, AGENTS.md pravidlo 4/6) -- vyžaduje explicitní QRZ.com XML
+    Subscription účet uživatele (username/password), ne vestavěné/sdílené
+    přihlašovací údaje."""
+
+    enabled: bool = False
+    username: str = ""
+    password: str = ""
+    base_url: str = "https://xmldata.qrz.com/xml/current/"
+    timeout_s: float = 10.0
+    cache_ttl_seconds: float = 86400.0
+
+    def __post_init__(self) -> None:
+        if self.enabled and not (self.username and self.password):
+            raise ValueError(
+                "qrz.enabled je true, ale qrz.username/qrz.password nejsou vyplněné -- "
+                "QRZ XML API vyžaduje přihlášení vlastním QRZ.com účtem (Subscription). "
+                "Vyplň oba údaje v config.yaml, nebo nech qrz.enabled: false."
+            )
+        if self.timeout_s <= 0:
+            raise ValueError(f"qrz.timeout_s musí být kladné číslo, dostal jsem {self.timeout_s!r}")
+
+
+@dataclass
 class PropagationConfig:
     """Hourly refresh of external propagation evidence."""
 
@@ -372,6 +399,7 @@ class AppConfig:
     presets: dict[str, FilterPreset] = field(default_factory=lambda: dict(DEFAULT_PRESETS))
     notifications: NotificationsConfig = field(default_factory=NotificationsConfig)
     propagation: PropagationConfig = field(default_factory=PropagationConfig)
+    qrz: QRZConfig = field(default_factory=QRZConfig)
 
 
 def _build_source_config(raw: dict) -> SourceConfig:
@@ -476,6 +504,16 @@ def config_from_dict(raw: dict) -> AppConfig:
         sfi_url=str(propagation_raw.get("sfi_url", PropagationConfig().sfi_url)),
     )
 
+    qrz_raw = raw.get("qrz", {}) or {}
+    qrz = QRZConfig(
+        enabled=bool(qrz_raw.get("enabled", False)),
+        username=str(qrz_raw.get("username", "") or ""),
+        password=str(qrz_raw.get("password", "") or ""),
+        base_url=str(qrz_raw.get("base_url", QRZConfig().base_url) or QRZConfig().base_url),
+        timeout_s=float(qrz_raw.get("timeout_s", 10.0)),
+        cache_ttl_seconds=float(qrz_raw.get("cache_ttl_seconds", 86400.0)),
+    )
+
     return AppConfig(
         station=station,
         rig=rig,
@@ -491,6 +529,7 @@ def config_from_dict(raw: dict) -> AppConfig:
         presets=presets,
         notifications=notifications,
         propagation=propagation,
+        qrz=qrz,
     )
 
 

@@ -13,7 +13,7 @@ from station_agent.aggregator import (
     group_spots_into_candidates,
 )
 from station_agent.db import Database
-from station_agent.models import Spot
+from station_agent.models import DXCCEntity, Spot
 from station_agent.scoring import DEFAULT_WEIGHTS, ScoringConfig
 
 
@@ -182,6 +182,55 @@ class DxccBearingTests(unittest.TestCase):
         attach_dxcc_and_bearing(candidates, qth_latlon=None)
         self.assertIsNone(candidates[0].bearing_deg)
 
+    def test_dxcc_fallback_used_when_prefix_table_misses(self):
+        # 4L (Georgia) neni v PREFIX_TABLE (viz DIAGNOSIS_DXCC_PREFIX_GAP.md) --
+        # obecny fallback (napr. QRZClient.lookup, viz adapters/qrz.py) musi
+        # dostat sanci dohledat zemi/DXCC, kdyz offline tabulka selze.
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="4L5O", freq_hz=14_074_000, mode="FT8", timestamp=now, source="pskreporter")]
+        )
+        calls = []
+
+        def fallback(callsign):
+            calls.append(callsign)
+            return DXCCEntity("Georgia", "4L", "AS", 41.7151, 44.8271, 21)
+
+        attach_dxcc_and_bearing(candidates, qth_latlon=None, dxcc_fallback=fallback)
+        self.assertEqual(calls, ["4L5O"])
+        self.assertEqual(candidates[0].dxcc.name, "Georgia")
+        self.assertEqual(candidates[0].country, "Georgia")
+
+    def test_dxcc_fallback_not_called_when_prefix_table_already_matches(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock")]
+        )
+
+        def fallback(callsign):
+            raise AssertionError("fallback nemel byt volan, prefix tabulka uz zemi zna")
+
+        attach_dxcc_and_bearing(candidates, qth_latlon=None, dxcc_fallback=fallback)
+        self.assertEqual(candidates[0].dxcc.name, "Japan")
+
+    def test_dxcc_fallback_none_result_keeps_country_missing(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="QQ0XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock")]
+        )
+        attach_dxcc_and_bearing(candidates, qth_latlon=None, dxcc_fallback=lambda callsign: None)
+        self.assertIsNone(candidates[0].dxcc)
+        self.assertIsNone(candidates[0].country)
+
+    def test_no_fallback_configured_preserves_existing_behaviour(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="4L5O", freq_hz=14_074_000, mode="FT8", timestamp=now, source="pskreporter")]
+        )
+        attach_dxcc_and_bearing(candidates, qth_latlon=None)
+        self.assertIsNone(candidates[0].dxcc)
+        self.assertIsNone(candidates[0].country)
+
 
 class AggregatorIntegrationTests(unittest.TestCase):
     def setUp(self):
@@ -210,6 +259,24 @@ class AggregatorIntegrationTests(unittest.TestCase):
         candidates = aggregator.build_candidates()
         scores = [c.score.total for c in candidates]
         self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_build_candidates_uses_configured_dxcc_fallback_for_unknown_prefixes(self):
+        now = time.time()
+        self.db.insert_spots(
+            [Spot(callsign="4L5O", freq_hz=14_074_000, mode="FT8", timestamp=now, source="pskreporter")]
+        )
+        calls = []
+
+        def fallback(callsign):
+            calls.append(callsign)
+            return DXCCEntity("Georgia", "4L", "AS", 41.7151, 44.8271, 21)
+
+        aggregator = Aggregator(
+            [], self.db, self.scoring_cfg, qth_latlon=(50.0, 14.0), dxcc_fallback=fallback
+        )
+        candidates = aggregator.build_candidates(now=now)
+        self.assertEqual(calls, ["4L5O"])
+        self.assertEqual(candidates[0].dxcc.name, "Georgia")
 
     def test_build_candidates_with_valid_station_locator_does_not_warn(self):
         now = time.time()

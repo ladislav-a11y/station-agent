@@ -8,6 +8,7 @@ from station_agent.modes import SUPPORTED_MODES
 from station_agent.config import (
     NotificationsConfig,
     PollingConfig,
+    QRZConfig,
     WebConfig,
     _MiniYamlParser,
     config_from_dict,
@@ -277,6 +278,45 @@ class WebConfigSafetyTests(unittest.TestCase):
     def test_accepts_port_at_range_boundaries(self):
         WebConfig(host="127.0.0.1", port=0)
         WebConfig(host="127.0.0.1", port=65535)
+
+
+class QRZConfigSafetyTests(unittest.TestCase):
+    def test_disabled_by_default(self):
+        config = config_from_dict({})
+        self.assertFalse(config.qrz.enabled)
+        self.assertEqual(config.qrz.username, "")
+        self.assertEqual(config.qrz.password, "")
+
+    def test_enabled_without_credentials_raises(self):
+        with self.assertRaises(ValueError):
+            QRZConfig(enabled=True, username="", password="")
+        with self.assertRaises(ValueError):
+            QRZConfig(enabled=True, username="OK1ABC", password="")
+
+    def test_enabled_with_credentials_is_accepted(self):
+        cfg = QRZConfig(enabled=True, username="OK1ABC", password="secret")
+        self.assertTrue(cfg.enabled)
+
+    def test_rejects_non_positive_timeout(self):
+        with self.assertRaises(ValueError):
+            QRZConfig(timeout_s=0)
+
+    def test_parsed_from_raw_dict(self):
+        raw = {
+            "qrz": {
+                "enabled": True,
+                "username": "OK1ABC",
+                "password": "secret",
+                "timeout_s": 5,
+                "cache_ttl_seconds": 3600,
+            }
+        }
+        config = config_from_dict(raw)
+        self.assertTrue(config.qrz.enabled)
+        self.assertEqual(config.qrz.username, "OK1ABC")
+        self.assertEqual(config.qrz.password, "secret")
+        self.assertEqual(config.qrz.timeout_s, 5.0)
+        self.assertEqual(config.qrz.cache_ttl_seconds, 3600.0)
 
 
 class PresetsConfigTests(unittest.TestCase):

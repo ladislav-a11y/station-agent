@@ -161,6 +161,23 @@ propagation:
   enabled: true
   refresh_seconds: 3600
 
+qrz:
+  # Obecný (ne hard-coded pro konkrétní prefix) síťový fallback pro
+  # zemi/DXCC, když ji offline PREFIX_TABLE (station_agent/dxcc.py) pro
+  # daný callsign nenajde -- viz DIAGNOSIS_DXCC_PREFIX_GAP.md. Nikdy
+  # nepřepisuje offline výsledek ani hodnotu dodanou zdrojem spotu, jen
+  # doplňuje to, co by jinak v GUI zůstalo jako "?".
+  # Defaultně vypnuto -- vyžaduje vlastní QRZ.com XML Subscription účet
+  # (https://www.qrz.com/XML/current_spec.html), ne sdílené/vestavěné
+  # přihlašovací údaje (viz AGENTS.md pravidlo 6).
+  enabled: false
+  username: ""
+  password: ""
+  # timeout_s: 10
+  # Jak dlouho se výsledek vyhledání (i "nenalezeno") drží v paměti, než se
+  # pro stejný callsign zkusí znovu -- viz adapters/qrz.py.
+  # cache_ttl_seconds: 86400
+
 # Pojmenované předvolby filtrů módů/pásem pro rychlý výběr v GUI -- čistě
 # lokální pohodlí, žádný vliv na rig/AUTO TUNE mimo to, co už dělá
 # POST /api/filters. Pokud sekci vynecháš, použijí se vestavěné výchozí

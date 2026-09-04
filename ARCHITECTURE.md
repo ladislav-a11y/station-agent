@@ -22,7 +22,8 @@ station_agent/
 │   ├── telnet_source.py            # sdílený živý telnet klient pro DX Cluster/RBN
 │   ├── dx_cluster.py             # parser řádků + živý telnet fetch() (funkční)
 │   ├── rbn.py                     # parser řádků + živý telnet fetch() (funkční)
-│   └── pskreporter.py              # parser XML + živý HTTP fetch() (funkční)
+│   ├── pskreporter.py              # parser XML + živý HTTP fetch() (funkční)
+│   └── qrz.py                       # QRZ.com XML lookup -- volitelný síťový DXCC/země fallback (ne SpotSource)
 ├── rig/
 │   ├── base.py                     # RigControl ABC (BEZ jakékoli PTT metody)
 │   ├── mock_rig.py                   # in-memory mock rig
@@ -43,6 +44,9 @@ Adaptéry (DX Cluster / RBN / PSKReporter / Mock)
         │           a sesbírá potvrzující zdroje (confirming_sources)
         ▼
      DXCC lookup (dxcc.py) ── doplní zemi/kontinent/souřadnice entity
+        │       (offline PREFIX_TABLE; když selže, volitelný síťový
+        │        fallback adapters/qrz.py -- viz README "DXCC/země
+        │        fallback přes QRZ.com")
         ▼
      Bearing (bearing.py) ── spočítá směr a vzdálenost z QTH
         ▼

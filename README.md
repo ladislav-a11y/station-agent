@@ -209,7 +209,27 @@ bezpečnostní invarianty, které se nesmí porušit).
 | DX Cluster — M0MHX | ✅ stejný produkční parser | ✅ živě ověřeno `dxc.m0mhx.uk:7300`, zdroj `dx_cluster_m0mhx`, včetně SSB spotu |
 | Reverse Beacon Network | ✅ parser řádků otestovaný na fixture datech | ✅ **živě funkční** — stejný `LiveTelnetSpotSource` klient jako DX Cluster výše, mířený na `telnet.reversebeacon.net:7000` |
 | PSKReporter | ✅ parser XML reportu otestovaný na fixture datech | ✅ **živě funkční** — `fetch()` reálně provádí HTTP GET na `query_url` (výchozí `retrieve.pskreporter.info/query`) a parsuje odpověď; síťová vrstva je otestovaná proti skutečnému lokálnímu HTTP serveru v `tests/test_adapters_live.py` |
+| QRZ.com XML lookup (DXCC/země fallback) | ✅ parser session/lookup XML otestovaný na fixture datech (`tests/test_qrz_parsing.py`) | ✅ **živě funkční** HTTP klient (`station_agent/adapters/qrz.py`, síťová vrstva otestovaná proti lokálnímu HTTP serveru v `tests/test_qrz_live.py`); vyžaduje vlastní `qrz.username`/`qrz.password` (QRZ.com XML Subscription), defaultně `qrz.enabled: false` |
 | Log4OM2 UDP prefill | ✅ sestavení payloadu otestované | ⏳ **pending verifikace** — odeslání UDP paketu je implementované, ale nebylo ověřeno proti běžící instanci Log4OM2 |
+
+### DXCC/země fallback přes QRZ.com
+
+`station_agent/dxcc.py::PREFIX_TABLE` je záměrně neúplná offline tabulka
+(viz `DIAGNOSIS_DXCC_PREFIX_GAP.md`) -- pro callsign, jehož žádný prefix v
+tabulce není (např. `4L5O`, prefixový blok Georgie), `callsign_to_dxcc()`
+vrátí `None` a GUI dřív vždy zobrazilo jen "?". `station_agent/adapters/qrz.py`
+poskytuje **obecný** (ne hard-coded pro konkrétní prefix/callsign) druhý
+krok: `aggregator.attach_dxcc_and_bearing()` zavolá volitelný
+`dxcc_fallback` (typicky `QRZClient.lookup`) jen pro kandidáty, u kterých
+offline tabulka selhala -- nikdy nepřepisuje offline výsledek ani hodnotu
+dodanou zdrojem spotu. Vypnuto, dokud uživatel v `config.yaml` explicitně
+nevyplní `qrz.enabled: true` a vlastní `qrz.username`/`qrz.password`
+(vyžaduje QRZ.com XML Subscription účet) -- žádné vestavěné/sdílené
+přihlašovací údaje. Výsledky (i "QRZ o callsignu nic neví") se cachují v
+paměti (`qrz.cache_ttl_seconds`, výchozí 24 h) a po síťové/auth chybě se
+další pokus odloží (`DEFAULT_ERROR_COOLDOWN_SECONDS`, 5 min), aby časté
+obnovování kandidátů nezahlcovalo QRZ opakovanými dotazy na stejný
+callsign.
 
 DX Cluster a RBN běží na sdíleném telnet klientovi (`station_agent/adapters/telnet_source.py`):
 vlastní daemon vlákno na zdroj, skutečný TCP socket, login callsignem

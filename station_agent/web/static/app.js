@@ -115,7 +115,7 @@ function renderCandidates() {
     const isSelected = sameCandidateKey(state.selected, c);
     row.className = "candidate-row" + (isSelected ? " selected" : "");
     const country = c.country || (c.dxcc && c.dxcc.name) || "?";
-    const dxcc = c.dxcc ? `${country} (${c.dxcc.continent})` : country;
+    const dxcc = c.dxcc && c.dxcc.continent ? `${country} (${c.dxcc.continent})` : country;
     const bearing = c.bearing_deg != null ? `${c.bearing_deg}° / ${c.distance_km ?? "?"} km` : "-";
     const sources = c.confirming_sources.join(", ");
     const scoreTotal = c.score ? c.score.total : 0;

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
+from typing import Callable
 
 from station_agent.adapters.base import SpotSource
 from station_agent.adapters.polling import DEFAULT_BACKOFF_MAX_SECONDS, PolledSource
@@ -18,7 +19,7 @@ from station_agent.bearing import bearing_and_distance, maidenhead_to_latlon
 from station_agent.config import ScoringConfig
 from station_agent.db import Database
 from station_agent.dxcc import callsign_to_dxcc
-from station_agent.models import Candidate, Spot
+from station_agent.models import Candidate, DXCCEntity, Spot
 from station_agent.propagation import PropagationContext
 from station_agent.scoring import score_candidate
 
@@ -140,7 +141,9 @@ def group_spots_into_candidates(
 
 
 def attach_dxcc_and_bearing(
-    candidates: list[Candidate], qth_latlon: tuple[float, float] | None
+    candidates: list[Candidate],
+    qth_latlon: tuple[float, float] | None,
+    dxcc_fallback: Callable[[str], DXCCEntity | None] | None = None,
 ) -> None:
     """Doplní chybějící zemi a trasu bez přepsání evidence ze zdroje.
 
@@ -151,9 +154,19 @@ def attach_dxcc_and_bearing(
     zachovaná jako původní evidence ze zdroje, nepoužije se pro geometrii
     a bezpečně se přejde na DXCC referenční bod. Varování se tedy týká
     lokátoru DX kandidáta dodaného zdrojem, nikoli konfigurovaného QTH.
+
+    ``dxcc_fallback`` je volitelný druhý krok, který se zavolá jen když
+    rychlá offline ``callsign_to_dxcc`` (PREFIX_TABLE) pro daný callsign
+    nic nenajde -- typicky ``QRZClient.lookup`` (viz adapters/qrz.py). Nikdy
+    nenahrazuje offline výsledek, jen ho doplňuje, a nikdy nevyhazuje
+    výjimku (viz kontrakt ``QRZClient.lookup``), takže chybějící/nedostupný
+    fallback nezmění nic na existujícím fail-safe chování (``None`` -> "?"
+    v GUI, ne vymyšlená hodnota).
     """
     for candidate in candidates:
         entity = callsign_to_dxcc(candidate.callsign)
+        if entity is None and dxcc_fallback is not None:
+            entity = dxcc_fallback(candidate.callsign)
         candidate.dxcc = entity
         if not candidate.country and entity is not None:
             candidate.country = entity.name
@@ -229,12 +242,14 @@ class Aggregator:
         source_poll_interval_seconds: float = 60.0,
         source_backoff_max_seconds: float = DEFAULT_BACKOFF_MAX_SECONDS,
         propagation: PropagationContext | None = None,
+        dxcc_fallback: Callable[[str], DXCCEntity | None] | None = None,
     ):
         self.sources = sources
         self.db = db
         self.scoring_cfg = scoring_cfg
         self.qth_latlon = qth_latlon
         self.propagation = propagation
+        self.dxcc_fallback = dxcc_fallback
         self.pollers: list[PolledSource] = [
             PolledSource(
                 source,
@@ -293,7 +308,7 @@ class Aggregator:
             spots = [s for s in spots if s.mode in allowed_modes]
 
         candidates = group_spots_into_candidates(spots)
-        attach_dxcc_and_bearing(candidates, self.qth_latlon)
+        attach_dxcc_and_bearing(candidates, self.qth_latlon, dxcc_fallback=self.dxcc_fallback)
         attach_scores(candidates, self.scoring_cfg, self.db, now=now, propagation=self.propagation)
         candidates.sort(key=lambda c: c.score.total if c.score else 0, reverse=True)
         return candidates

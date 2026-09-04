@@ -37,7 +37,7 @@ stejným callsign + band + kompatibilním módem + přibližnou frekvencí +
 | `confirming_sources` | `{s.source for s in cluster}` | přímá evidence, nikdy odhad |
 | `spotters` | `{s.spotter for s in cluster if s.spotter}` | množina nezávislých pozorovatelů -- vstup pro `_reliability_reason` |
 | `best_snr_db` | `max()` z nenulových `snr_db` v clusteru | `None`, pokud žádný spot SNR nehlásí |
-| `dxcc` | `dxcc.callsign_to_dxcc(callsign)` | deterministické vyhledání v prefix tabulce, žádné externí volání |
+| `dxcc` | `dxcc.callsign_to_dxcc(callsign)`, při `None` volitelně `dxcc_fallback(callsign)` | offline prefix tabulka má přednost, žádné externí volání; `dxcc_fallback` (typicky `adapters/qrz.py::QRZClient.lookup`) se zavolá jen když tabulka selže a je nakonfigurovaný (`qrz.enabled`), viz README "DXCC/země fallback přes QRZ.com" |
 | `country` | nejnovější neprázdná hodnota ze spotů, jinak DXCC dle prefixu | dodanou zemi nepřepisuje odhad |
 | `locator` | nejnovější neprázdná hodnota ze spotů | původní hodnota se zachová i tehdy, když ji Maidenhead převodník odmítne; jde o evidenci zdroje, ne o konfigurované QTH |
 | `bearing_deg`, `distance_km` | přímá evidence ze spotu, jinak `bearing.bearing_and_distance()` z QTH + platného lokátoru stanice; při odmítnutí lokátoru z bodu DXCC entity | Odmítnutý lokátor se nepoužije jako souřadnice a vyvolá vysvětlující varování; `None`, pokud chybí QTH nebo použitelný cíl -- nikdy se nedosazuje placeholder |

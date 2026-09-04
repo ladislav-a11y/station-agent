@@ -457,3 +457,48 @@
   byla navazující, odlišná práce nad `PREFIX_TABLE`). Ověřeno
   `git status --porcelain`: mimo tuto poznámku a nový diagnostický
   dokument žádný jiný soubor touto iterací dotčen nebyl.
+
+## Obecný QRZ.com fallback pro DXCC/zemi -- iterace 1/10 -- 04.09.2026
+
+* Navazující implementační práce na mezeru zdokumentovanou výše
+  (`DIAGNOSIS_DXCC_PREFIX_GAP.md`): nový, **obecný** (ne hard-coded pro
+  `4L5O` ani žádný jiný konkrétní prefix/callsign) druhý krok, který se
+  zavolá jen když offline `dxcc.py::PREFIX_TABLE` pro daný callsign nic
+  nenajde.
+* `station_agent/adapters/qrz.py` -- reálný HTTP klient na QRZ.com XML API
+  (přihlášení username/password -> session key -> lookup callsignu),
+  stejný vzor jako existující `pskreporter.py` (síťová vrstva oddělená od
+  parserů, parsery testované na fixture XML v `tests/test_qrz_parsing.py`,
+  síťová vrstva proti skutečnému lokálnímu HTTP serveru v
+  `tests/test_qrz_live.py`, bez přístupu k internetu). `QRZClient.lookup()`
+  nikdy nevyhazuje výjimku (síťová/auth chyba -> zaloguje se a vrátí
+  `None`, stejná sémantika jako `callsign_to_dxcc`) a cachuje výsledky
+  (i negativní) v paměti, aby opakované volání při každém obnovení
+  kandidátů nezatěžovalo QRZ zbytečnými dotazy.
+* `aggregator.attach_dxcc_and_bearing()` dostal nový volitelný parametr
+  `dxcc_fallback` -- zavolá se jen když offline `callsign_to_dxcc()` vrátí
+  `None`, nikdy nepřepisuje offline výsledek ani hodnotu dodanou zdrojem
+  spotu (zachováno stávající "provider/offline má přednost" chování,
+  regresně pokryto novými testy v `tests/test_aggregator.py`). Bez
+  nakonfigurovaného fallbacku (`dxcc_fallback=None`, výchozí) je chování
+  bit-přesně stejné jako dřív.
+* `config.py::QRZConfig` (nová sekce `qrz:` v config.yaml/config.example.yaml)
+  -- defaultně `enabled: false` (stejný princip jako ostatní živé zdroje,
+  AGENTS.md pravidlo 4/6), vyžaduje explicitně vyplněné `username`/
+  `password` vlastního QRZ.com XML Subscription účtu, jinak `load_config`
+  selže srozumitelnou `ValueError` už při startu. `cli.py::build_app_state`
+  fallback zapojí do `Aggregator` jen když je `qrz.enabled`.
+* Live ověření proti skutečnému QRZ.com (reálné username/password) není v
+  tomto sandboxu k dispozici -- žádné QRZ přihlašovací údaje nejsou
+  nastavené. Síťová vrstva je proto ověřená stejným způsobem jako u
+  živě funkčního PSKReporter adaptéru: skutečný HTTP GET přes loopback
+  proti lokálnímu testovacímu serveru (real socket, ne mock v procesu),
+  ne proti produkčnímu `xmldata.qrz.com`.
+* Drobná doprovodná oprava GUI (`web/static/app.js`): `dxcc.continent` u
+  QRZ fallback entit je `""` (QRZ kontinent přímo nevrací, radši prázdné
+  než vymyšlené) -- zobrazení upraveno, aby v tom případě nepsalo prázdné
+  závorky `Country ()`.
+* Mimo rozsah beze změny: `dxcc.py::PREFIX_TABLE` samotná nebyla rozšířena
+  o žádné nové prefixy (to by bylo přímé "hard-codování", zadání výslovně
+  žádá obecný mechanismus) a žádný jiný adaptér/scoring/rig/log4om kód
+  nebyl dotčen.

@@ -10,6 +10,7 @@ import sys
 from station_agent.adapters.dx_cluster import DXClusterAdapter, RECOMMENDED_PROVIDERS
 from station_agent.adapters.mock import MockAdapter
 from station_agent.adapters.pskreporter import PSKReporterAdapter
+from station_agent.adapters.qrz import QRZClient
 from station_agent.adapters.rbn import RBNAdapter
 from station_agent.aggregator import Aggregator
 from station_agent.app_state import AppState, PollingLoop
@@ -95,6 +96,19 @@ def build_app_state(config: AppConfig) -> AppState:
             logger.warning("QTH není nakonfigurováno, bearing nebude dostupný: %s", exc)
             qth_latlon = None
 
+        dxcc_fallback = None
+        if config.qrz.enabled:
+            # config.py::QRZConfig.__post_init__ uz vynutilo, ze username/password
+            # jsou vyplnene, pokud je enabled true -- viz AGENTS.md pravidlo 6
+            # (zadne volani externi sluzby bez explicitni volby uzivatele).
+            dxcc_fallback = QRZClient(
+                username=config.qrz.username,
+                password=config.qrz.password,
+                base_url=config.qrz.base_url,
+                timeout_s=config.qrz.timeout_s,
+                cache_ttl_seconds=config.qrz.cache_ttl_seconds,
+            ).lookup
+
         aggregator = Aggregator(
             build_sources(config),
             db,
@@ -102,6 +116,7 @@ def build_app_state(config: AppConfig) -> AppState:
             qth_latlon=qth_latlon,
             source_poll_interval_seconds=config.polling.source_interval_seconds,
             source_backoff_max_seconds=config.polling.source_backoff_max_seconds,
+            dxcc_fallback=dxcc_fallback,
         )
     except TypeError as exc:
         # sources.*.options je volný dict (SourceConfig.options), na rozdíl
