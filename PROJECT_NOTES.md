@@ -430,3 +430,30 @@
   hodnoty) -- to je podle runtime contractu i podle zadání výhradně
   v kompetenci ai-orchestrátoru, ne tohoto agenta. Tento agent proto
   žádný live vzorek nefingoval ani nesimuloval.
+
+## Analýza mezery DXCC prefixové tabulky u stanic jako 4L5O -- iterace 1/10 -- 04.09.2026
+
+* Nové zadání (samostatný rozsah, jen analýza a dokumentace, výslovně
+  "zachovat chování mimo tento rozsah" -- žádná oprava): zjistit, proč
+  stanice jako `4L5O` v dnešním živém běhu nedostanou určenou zemi/DXCC,
+  a zdokumentovat konkrétní mezeru ve zdroji dat.
+* Živě ověřeno přímo produkčním `adapters/pskreporter.py` proti
+  `retrieve.pskreporter.info` (2026-09-04, `flowStartSeconds=-3600`):
+  reálný dnešní spot `4L7T` (stejný prefix jako zadaný příklad `4L5O`)
+  s `country=None`. `callsign_to_dxcc("4L5O")` i `callsign_to_dxcc("4L7T")`
+  obě vrací `None` -- `station_agent/dxcc.py::PREFIX_TABLE` (95 položek)
+  nemá žádný klíč začínající na `4L` (DXCC entita Georgia úplně chybí).
+* Šíře: ve stejné hodině živého provozu 124 z 473 distinct callsignů
+  (≈26 %) skončilo bez DXCC -- část jsou zcela chybějící entity (Georgia,
+  Bosna a Hercegovina `E7`, Arménie `EK`, Korsika `TK`, Bělorusko `EW`),
+  část je jemnější mezera i u pokrytých zemí (tabulka má jen `"JA"` pro
+  Japonsko, ale živě přijaté `JE3GUG`/`JR4KVI` selžou stejně; jen `"G"`
+  pro Anglii, ale `M0`/`M1`/`2E0` prefixy selžou stejně; jen `"UA"` pro
+  Rusko, ale jednopísmenné `R7ZY`/`R1BBG`/`RN2F` selžou stejně).
+* Plná analýza s reprodukovatelnými příkazy a živými vzorky:
+  `DIAGNOSIS_DXCC_PREFIX_GAP.md`.
+* Žádná změna produkčního kódu v `station_agent/` -- podle zadání jde
+  výhradně o analýzu a zdokumentování mezery, ne o její opravu (ta by
+  byla navazující, odlišná práce nad `PREFIX_TABLE`). Ověřeno
+  `git status --porcelain`: mimo tuto poznámku a nový diagnostický
+  dokument žádný jiný soubor touto iterací dotčen nebyl.
