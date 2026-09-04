@@ -213,3 +213,220 @@
   nezávisle ověřené scénáře jsou funkčně beze změny a bez nalezené regrese;
   jde čistě o doplnění důkazního záznamu pro nezávislý audit
   ai-orchestrátoru, který jediný smí vynést verdikt `accepted`/`rejected`.
+
+## Nesoulad rozsahu zadání -- iterace 1/10 -- 04.09.2026
+
+* Zadaný cíl iterace ("Oprava Project manager: nezávislý audit
+  orchestrátoru musí umět odhalit nesoulad mezi kartou označenou v Trellu
+  jako hotovou a skutečným stavem implementace...") popisuje opravu
+  auditní logiky samotného `ai-orchestrator`/AI Project Manager. Tento
+  repozitář (`D:\orchestrator\station-agent`) ale obsahuje výhradně
+  aplikaci Station Agent (`station_agent/` -- rádiový asistent pro
+  IC-7300/DX Cluster/RBN/PSKReporter); žádný kód `ai-orchestrator`, AI
+  Project Manager ani Trello auditní logiky se v něm nikdy nenacházel a
+  ani teď nenachází (ověřeno `grep` přes celý strom -- jediné výskyty
+  slova "audit"/"orchestr" jsou existující evidenční `.md` dokumenty a
+  komentáře k testům pro dřívější Station Agent opravy, ne implementace
+  auditu). Přístup mimo `D:\orchestrator\station-agent` je navíc v tomto
+  běhu sandboxem přímo zamítnut (`D:\orchestrator` nelze ani vypsat).
+* Podle `AGENTS.md` (jasně vymezený rozsah repozitáře) a runtime
+  contractu ("Missing, unknown, or ambiguous project identity fails
+  closed: do not dispatch and do not infer a repository from title,
+  description, priority, or slug") by přidání auditní logiky
+  ai-orchestrátoru do balíčku `station_agent/` bylo přidáním kódu zcela
+  mimo rozsah a účel tohoto projektu -- proto touto iterací nebyl přidán
+  žádný takový kód.
+* Žádná změna produkčního kódu v `station_agent/`. DoD bod zůstává
+  nesplněný -- jeho realizace patří do repozitáře `ai-orchestrator`/AI
+  Project Manager, ne do Station Agent.
+
+## Opakované ověření nesouladu rozsahu -- iterace 2/10 -- 04.09.2026
+
+* Stejný cíl iterace zadán znovu. Nezávisle znovu ověřeno: `station_agent/`
+  ani zbytek repozitáře stále neobsahuje žádný kód ai-orchestrator/AI
+  Project Manager/Trello auditu; přístup mimo
+  `D:\orchestrator\station-agent` je sandboxem session stále zamítnutý
+  (`D:\orchestrator` nelze vypsat). Závěr z iterace 1 se nemění.
+* Testy z minulé iterace (`python -m pytest -q`), ověřeno orchestrátorem:
+  PROŠLY. Touto iterací žádná změna produkčního kódu, jen doplnění tohoto
+  záznamu.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 1/10 -- 04.09.2026
+
+* Předchozí série (10 iterací) skončila se stejným závěrem: cíl ("Oprava
+  Project manager: nezávislý audit orchestrátoru...") je auditní logika
+  `ai-orchestrator`/AI Project Manager, ne Station Agent. Tato nová série
+  začíná znovu od iterace 1/10 se stejným zadáním -- nezávisle znovu
+  ověřeno, že se na okolnostech nic nezměnilo: `grep` přes `station_agent/`
+  po `ai-orchestrator|AI Project Manager|independent audit|audit_verdict`
+  nenašel žádnou shodu (jen dosavadní evidenční `.md` dokumenty a
+  komentáře), a přístup mimo `D:\orchestrator\station-agent` je sandboxem
+  této session stále přímo zamítnutý (`ls D:/orchestrator` selhalo s
+  "may only list files in the allowed working directories ...
+  station-agent").
+* Žádná změna produkčního kódu v `station_agent/`. DoD bod zůstává
+  nesplněný ze stejného důvodu jako v celé minulé sérii -- jeho realizace
+  patří výhradně do repozitáře `ai-orchestrator`/AI Project Manager.
+  Doporučení z minulé série trvá: kartu na úrovni orchestrátoru/PM
+  přerouteovat na správný projekt nebo ji označit jako nedispatchovatelnou
+  pro station-agent, jinak tato nová série jen zopakuje stejný výsledek.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 2/10 -- 04.09.2026
+
+* Stejné zadání znovu. Nezávisle znovu ověřeno: `git status --porcelain`
+  ukazuje jen tuto poznámku, HEAD je stále na commitu s předchozí
+  finalizací (`32196e2`), přístup mimo `D:\orchestrator\station-agent` je
+  sandboxem stále zamítnutý (`ls D:/orchestrator` selhalo stejnou hláškou
+  jako v iteraci 1). Testy z minulé iterace (`python -m pytest -q`),
+  ověřeno orchestrátorem: PROŠLY. Závěr se nemění -- viz iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 3/10 -- 04.09.2026
+
+* Stejné zadání znovu. Nezávisle znovu ověřeno: `git status --porcelain`
+  ukazuje jen tuto poznámku, přístup mimo `D:\orchestrator\station-agent`
+  je sandboxem stále zamítnutý (`ls D:/orchestrator` selhalo stejnou
+  hláškou jako v iteracích 1-2). Testy z minulé iterace (`python -m
+  pytest -q`), ověřeno orchestrátorem: PROŠLY. Závěr se nemění -- viz
+  iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 4/10 -- 04.09.2026
+
+* Stejné zadání znovu. Nezávisle znovu ověřeno: `git status --porcelain`
+  ukazuje jen tuto poznámku, přístup mimo `D:\orchestrator\station-agent`
+  je sandboxem stále zamítnutý (`ls D:/orchestrator` selhalo stejnou
+  hláškou jako v iteracích 1-3). Testy z minulé iterace (`python -m
+  pytest -q`), ověřeno orchestrátorem: PROŠLY. Závěr se nemění -- viz
+  iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 5/10 -- 04.09.2026
+
+* Stejné zadání znovu. Nezávisle znovu ověřeno: `git status --porcelain`
+  ukazuje jen tuto poznámku, přístup mimo `D:\orchestrator\station-agent`
+  je sandboxem stále zamítnutý (`ls D:/orchestrator` selhalo stejnou
+  hláškou jako v iteracích 1-4). Testy z minulé iterace (`python -m
+  pytest -q`), ověřeno orchestrátorem: PROŠLY. Závěr se nemění -- viz
+  iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 6/10 -- 04.09.2026
+
+* Stejné zadání znovu. Nezávisle znovu ověřeno: `git status --porcelain`
+  ukazuje jen tuto poznámku, přístup mimo `D:\orchestrator\station-agent`
+  je sandboxem stále zamítnutý (`ls D:/orchestrator` selhalo stejnou
+  hláškou jako v iteracích 1-5). Testy z minulé iterace (`python -m
+  pytest -q`), ověřeno orchestrátorem: PROŠLY. Závěr se nemění -- viz
+  iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 7/10 -- 04.09.2026
+
+* Stejné zadání znovu. Nezávisle znovu ověřeno: `git status --porcelain`
+  ukazuje jen tuto poznámku, přístup mimo `D:\orchestrator\station-agent`
+  je sandboxem stále zamítnutý (`ls D:/orchestrator` selhalo stejnou
+  hláškou jako v iteracích 1-6). Testy z minulé iterace (`python -m
+  pytest -q`), ověřeno orchestrátorem: PROŠLY. Závěr se nemění -- viz
+  iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 8/10 -- 04.09.2026
+
+* Stejné zadání znovu. Nezávisle znovu ověřeno: `git status --porcelain`
+  ukazuje jen tuto poznámku, přístup mimo `D:\orchestrator\station-agent`
+  je sandboxem stále zamítnutý (`ls D:/orchestrator` selhalo stejnou
+  hláškou jako v iteracích 1-7). Testy z minulé iterace (`python -m
+  pytest -q`), ověřeno orchestrátorem: PROŠLY. Závěr se nemění -- viz
+  iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`.
+
+## Nová série -- opakované ověření nesouladu rozsahu -- iterace 9/10 -- 04.09.2026
+
+* Stejné zadání znovu (předposlední iterace této série). Nezávisle znovu
+  ověřeno: `git status --porcelain` ukazuje jen tuto poznámku, přístup
+  mimo `D:\orchestrator\station-agent` je sandboxem stále zamítnutý
+  (`ls D:/orchestrator` selhalo stejnou hláškou jako v iteracích 1-8).
+  Testy z minulé iterace (`python -m pytest -q`), ověřeno orchestrátorem:
+  PROŠLY. Závěr se nemění -- viz iterace 1 výše.
+* Žádná změna produkčního kódu v `station_agent/`. Pokud i příští
+  (poslední, 10.) iterace této série dopadne stejně, doporučení pro
+  orchestrátor/PM zůstává: kartu přerouteovat na `ai-orchestrator` nebo ji
+  označit jako nedispatchovatelnou pro station-agent -- opakování dalších
+  sérií bez změny okolností přináší nulovou realnou práci.
+
+## Nová série -- poslední (10.) iterace -- 04.09.2026
+
+* Poslední iterace této druhé 10-iterační série. Nezávisle znovu ověřeno:
+  `git status --porcelain` ukazuje jen tuto poznámku, přístup mimo
+  `D:\orchestrator\station-agent` je sandboxem stále zamítnutý
+  (`ls D:/orchestrator` selhalo stejnou hláškou jako po celou tuto sérii).
+  `grep` přes `station_agent/` po `ai-orchestrator|AI Project
+  Manager|independent audit|audit_verdict` beze shody -- stejně jako v
+  iteraci 1. Testy z minulé iterace (`python -m pytest -q`), ověřeno
+  orchestrátorem: PROŠLY. Závěr zůstává beze změny od iterace 1 této
+  série (a beze změny od celé předchozí 10-iterační série).
+* Žádná změna produkčního kódu v `station_agent/` za celou tuto (druhou)
+  10-iterační sérii. DoD bod nelze splnit z tohoto repozitáře -- realizace
+  patří výhradně do repozitáře `ai-orchestrator`/AI Project Manager.
+  Karta byla nyní dispatchnuta do station-agent celkem 20x (dvě po sobě
+  jdoucí 10-iterační série) beze změny okolností. Důrazné doporučení pro
+  příští kolo: na úrovni orchestrátoru/PM tuto Trello kartu přerouteovat
+  na správný projekt (`ai-orchestrator`) nebo ji trvale zablokovat/označit
+  jako nedispatchovatelnou pro station-agent -- další automatické série
+  do tohoto repozitáře by jen opakovaly stejný zjištěný závěr bez jakékoli
+  reálné práce.
+
+## Nová karta -- geolokační fallback (P5) -- iterace 1/10 -- 04.09.2026
+
+* Nové zadání (odlišné od předchozích dvou sérií výše): opravit a live
+  ověřit geolokační fallback -- (1) dopočet země z prefixu callsignu, když
+  ji DX Cluster/RBN/PSKReporter nedodá, (2) dopočet bearing/distance
+  z vlastního QTH a lokátoru protistanice, když je provider nedodá, (3)
+  providerová hodnota má vždy přednost, (4) chybějící podklad se
+  nevymýšlí. Na rozdíl od předchozích dvou sérií jde o funkčnost přímo
+  v `station_agent/` -- ve scope tohoto repozitáře.
+* Statickou kontrolou zdrojového kódu ověřeno, že implementace všech
+  čtyř bodů už v HEAD existuje a je funkční:
+  - `station_agent/dxcc.py::callsign_to_dxcc` -- longest-prefix-match nad
+    `PREFIX_TABLE`, vrací `None` (nic nevymýšlí) pro neznámý prefix.
+  - `station_agent/aggregator.py::attach_dxcc_and_bearing` -- doplní
+    `candidate.country` jen když `not candidate.country` (provider
+    hodnotu nikdy nepřepíše), dopočte `bearing_deg`/`distance_km` jen pro
+    tu z dvojice, která chybí (`if candidate.bearing_deg is None` /
+    `if candidate.distance_km is None`), přednostně z lokátoru
+    protistanice (`maidenhead_to_latlon`) a až při jeho absenci/neplatnosti
+    z referenčního bodu DXCC entity; neplatný lokátor se zaloguje a
+    zachová jako evidence, nepřepíše se.
+  - Žádný adaptér (`adapters/dx_cluster.py`, `adapters/pskreporter.py`,
+    RBN) nikdy nenastavuje `Spot.country` ani `bearing_deg`/`distance_km`
+    přímo -- fallback se tedy v praxi uplatní pro zemi vždy a pro
+    bearing/distance vždy, když provider tyto hodnoty nedodá (což pro
+    zemi platí u všech tří zdrojů, pro bearing/distance u všech tří
+    zdrojů taky, protože ani jeden adaptér tato pole nenaplňuje -- jediné
+    pole, které providers dodávají, je `locator` u PSKReporteru).
+  - `station_agent/web/serialization.py` a `web/static/app.js` čtou
+    `candidate.country`/`bearing_deg`/`distance_km` bez rozlišení
+    provider-vs-fallback -- fallbacková hodnota se v GUI zobrazí úplně
+    stejně jako providerová (požadavek "zobrazit shodně s providerovou
+    zemí" je tedy splněný strukturálně, ne jen nahodile).
+  - `tests/test_aggregator.py::DxccBearingTests` pokrývá přesně těchto
+    9 scénářů: doplnění země z prefixu, neznámý prefix beze změny,
+    zachování dodané země/bearing/distance beze změny, dopočet jen
+    chybějící z dvojice bearing/distance oběma směry, preference lokátoru
+    protistanice před DXCC referenčním bodem, 8znakový extended locator
+    s písmeny na pozici extended square (reálný PSKReporter kandidát),
+    neplatný lokátor -> zachování evidence + fallback na DXCC + warning
+    log, a žádný bearing bez nakonfigurovaného QTH.
+* Žádná změna produkčního kódu v `station_agent/` touto iterací --
+  implementace i regresní testy pro všechny čtyři body zadání už v HEAD
+  existují, jsou vzájemně konzistentní a žádná mezera nebyla nalezena.
+  Výsledek testů z minulé iterace (`python -m pytest -q`) není k dispozici
+  (viz zadání); spuštění testů provádí výhradně orchestrátor.
+* Zbývající krok podle zadání je výhradně **live** audit (skutečný běh
+  Station Agenta v produkčním/ne-mock režimu, živý příjem z DX Cluster/
+  RBN/PSKReporter, doložení konkrétního live vzorku bez země -> země
+  z prefixu, a live vzorku bez bearing/distance s lokátorem -> dopočtené
+  hodnoty) -- to je podle runtime contractu i podle zadání výhradně
+  v kompetenci ai-orchestrátoru, ne tohoto agenta. Tento agent proto
+  žádný live vzorek nefingoval ani nesimuloval.
