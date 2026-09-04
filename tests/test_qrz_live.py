@@ -42,6 +42,27 @@ LOOKUP_XML = b"""<?xml version="1.0" encoding="utf-8" ?>
 </QRZDatabase>
 """
 
+# Druhy, odlisny callsign/zeme (dalsi "?" stanice ze zivych dat 2026-09-04,
+# viz DIAGNOSIS_DXCC_PREFIX_GAP.md) -- dokazuje, ze cely HTTP klient neni
+# hard-coded na "4L5O", ale skutecne posila/parsuje libovolny dotazovany
+# callsign.
+LOOKUP_JE3GUG_XML = b"""<?xml version="1.0" encoding="utf-8" ?>
+<QRZDatabase version="1.34" xmlns="http://xmldata.qrz.com">
+<Callsign>
+<call>JE3GUG</call>
+<country>Japan</country>
+<lat>34.6937</lat>
+<lon>135.5023</lon>
+<cqzone>25</cqzone>
+</Callsign>
+<Session>
+<Key>livesessionkey</Key>
+<Count>3</Count>
+<GMTime>Fri Sep  4 12:00:02 2026</GMTime>
+</Session>
+</QRZDatabase>
+"""
+
 
 class _QRZHandler(BaseHTTPRequestHandler):
     last_path: str | None = None
@@ -51,7 +72,9 @@ class _QRZHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/xml; charset=utf-8")
         self.end_headers()
-        if "callsign=" in self.path:
+        if "callsign=JE3GUG" in self.path:
+            self.wfile.write(LOOKUP_JE3GUG_XML)
+        elif "callsign=" in self.path:
             self.wfile.write(LOOKUP_XML)
         else:
             self.wfile.write(SESSION_XML)
@@ -96,6 +119,17 @@ class QRZLiveFetchTests(_LocalHttpServerTestCase):
         self.assertIsNotNone(entity)
         self.assertEqual(entity.name, "Georgia")
         self.assertEqual(entity.cq_zone, 21)
+
+    def test_client_lookup_end_to_end_for_different_station_is_not_hard_coded(self):
+        # Obecnost reseni: stejny klient bez jakekoli zmeny kodu spravne
+        # dohleda i uplne jinou stanici/zemi (JE3GUG/Japan) -- neni to
+        # specialni vetvena logika jen pro presny priklad "4L5O" ze zadani.
+        client = QRZClient(username="OK1TEST", password="secret", base_url=self.base_url, timeout_s=5)
+        entity = client.lookup("JE3GUG")
+        self.assertIsNotNone(entity)
+        self.assertEqual(entity.name, "Japan")
+        self.assertEqual(entity.cq_zone, 25)
+        self.assertIn("callsign=JE3GUG", _QRZHandler.last_path)
 
 
 if __name__ == "__main__":

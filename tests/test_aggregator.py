@@ -222,6 +222,26 @@ class DxccBearingTests(unittest.TestCase):
         self.assertIsNone(candidates[0].dxcc)
         self.assertIsNone(candidates[0].country)
 
+    def test_dxcc_fallback_used_for_other_station_not_just_the_dod_example(self):
+        # Obecnost: aggregator.attach_dxcc_and_bearing nesmi byt hard-coded
+        # na presne "4L5O" ze zadani -- JE3GUG je dalsi zivy priklad "?"
+        # stanice z DIAGNOSIS_DXCC_PREFIX_GAP.md (prefix "JE" v offline
+        # PREFIX_TABLE chybi).
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="JE3GUG", freq_hz=14_074_000, mode="FT8", timestamp=now, source="pskreporter")]
+        )
+        calls = []
+
+        def fallback(callsign):
+            calls.append(callsign)
+            return DXCCEntity("Japan", "JE", "AS", 34.6937, 135.5023, 25)
+
+        attach_dxcc_and_bearing(candidates, qth_latlon=None, dxcc_fallback=fallback)
+        self.assertEqual(calls, ["JE3GUG"])
+        self.assertEqual(candidates[0].dxcc.name, "Japan")
+        self.assertEqual(candidates[0].country, "Japan")
+
     def test_no_fallback_configured_preserves_existing_behaviour(self):
         now = time.time()
         candidates = group_spots_into_candidates(

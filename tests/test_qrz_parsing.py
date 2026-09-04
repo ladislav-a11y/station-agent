@@ -54,6 +54,26 @@ LOOKUP_4L5O_XML = """<?xml version="1.0" encoding="utf-8" ?>
 </QRZDatabase>
 """
 
+LOOKUP_JE3GUG_XML = """<?xml version="1.0" encoding="utf-8" ?>
+<QRZDatabase version="1.34" xmlns="http://xmldata.qrz.com">
+<Callsign>
+<call>JE3GUG</call>
+<country>Japan</country>
+<lat>34.6937</lat>
+<lon>135.5023</lon>
+<grid>PM74qa</grid>
+<ccode>339</ccode>
+<cqzone>25</cqzone>
+<ituzone>45</ituzone>
+</Callsign>
+<Session>
+<Key>abc123sessionkey</Key>
+<Count>126</Count>
+<GMTime>Fri Sep  4 12:00:04 2026</GMTime>
+</Session>
+</QRZDatabase>
+"""
+
 LOOKUP_NOT_FOUND_XML = """<?xml version="1.0" encoding="utf-8" ?>
 <QRZDatabase version="1.34" xmlns="http://xmldata.qrz.com">
 <Session>
@@ -95,6 +115,19 @@ class ParseLookupXmlTests(unittest.TestCase):
         self.assertEqual(entity.cq_zone, 21)
         # Kontinent QRZ nevrací -- radši prázdné, než vymyšlené (viz app.js).
         self.assertEqual(entity.continent, "")
+
+    def test_parses_different_callsign_and_country_generically(self):
+        # Obecnost: parser nesmi byt zavisly na tom, ze prvni fixture byla
+        # zrovna "4L5O"/Georgia -- JE3GUG/Japan je dalsi zivy priklad
+        # stanice s "?" z DIAGNOSIS_DXCC_PREFIX_GAP.md (prefix "JE" v
+        # offline PREFIX_TABLE chybi, i kdyz "JA" uz tam je).
+        entity = parse_qrz_lookup_xml(LOOKUP_JE3GUG_XML)
+        self.assertIsNotNone(entity)
+        self.assertEqual(entity.name, "Japan")
+        self.assertEqual(entity.prefix, "JE3GUG")
+        self.assertAlmostEqual(entity.latitude, 34.6937)
+        self.assertAlmostEqual(entity.longitude, 135.5023)
+        self.assertEqual(entity.cq_zone, 25)
 
     def test_not_found_returns_none_not_exception(self):
         self.assertIsNone(parse_qrz_lookup_xml(LOOKUP_NOT_FOUND_XML))

@@ -561,3 +561,48 @@
 * Mimo rozsah beze změny: `adapters/qrz.py` (síťová vrstva/cache/backoff
   z iterace 1/10 nedotčena), `aggregator.py`, `cli.py`, žádný jiný
   konfigurační dataclass.
+
+## Ověření funkčnosti u 4L5O a obecnosti QRZ fallbacku -- iterace 1/10 -- 04.09.2026
+
+* Nové zadání (samostatný rozsah): "ověřit funkčnost na stanici 4L5O a
+  případně dalších stanicích s '?' z dnešního živého běhu, potvrdit
+  obecnost řešení mimo hard-coded případ. Zachovat chování mimo tento
+  rozsah."
+* Nejdřív ověřeno, že řešení mezery zdokumentované v
+  `DIAGNOSIS_DXCC_PREFIX_GAP.md` už existuje a je hotové z předchozích
+  iterací (`adapters/qrz.py` + `aggregator.attach_dxcc_and_bearing`
+  `dxcc_fallback` + `cli.py`/`config.py` `qrz:` sekce, viz README "Stav
+  externích zdrojů"). Zvažoval jsem doplnit chybějící prefixy (`4L`,
+  `E7`, `EK`, `JE`/`JR`, `M0`, `R`, ...) přímo do
+  `dxcc.py::PREFIX_TABLE`, ale to by bylo přesně to hard-codování, které
+  předchozí iterace ("Obecný QRZ.com fallback pro DXCC/zemi") výslovně
+  zamítla ve prospěch obecného síťového mechanismu -- takový pokus jsem
+  vrátil zpět (`git checkout`/ruční revert), aby zůstalo zachováno
+  chování mimo tento rozsah.
+* Existující testy (`tests/test_qrz_live.py`,
+  `tests/test_aggregator.py::test_dxcc_fallback_used_when_prefix_table_misses`)
+  už ověřovaly `4L5O` end-to-end (parser, session/cache, HTTP klient přes
+  skutečný lokální socket, i celý `attach_dxcc_and_bearing` pipeline), ale
+  všechny úspěšné příklady používaly výhradně stejný jeden callsign
+  `4L5O` -- obecnost mechanismu (že nejde o skrytou speciální větev jen
+  pro tento jeden příklad ze zadání) tak nebyla přímo dokázána druhým,
+  odlišným příkladem.
+* Doplněny regresní testy s druhou, zcela odlišnou stanicí/zemí
+  (`JE3GUG`/Japan -- další živě přijatá "?" stanice z dnešního běhu
+  2026-09-04 podle `DIAGNOSIS_DXCC_PREFIX_GAP.md`, prefix `JE` v offline
+  `PREFIX_TABLE` chybí i když `JA` už tam je) přes celý zásobník:
+  `tests/test_qrz_parsing.py::test_parses_different_callsign_and_country_generically`,
+  `tests/test_qrz_live.py::test_client_lookup_end_to_end_for_different_station_is_not_hard_coded`
+  (reálný lokální HTTP socket), `tests/test_aggregator.py::test_dxcc_fallback_used_for_other_station_not_just_the_dod_example`.
+  Ručně ověřeno (mimo pytest, který spouští výhradně orchestrátor) přímým
+  voláním produkčního kódu proti lokálnímu HTTP serveru: `4L5O -> Georgia`
+  i `JE3GUG -> Japan` oba projdou stejným, nezměněným `QRZClient`/
+  `attach_dxcc_and_bearing` kódem.
+* Mimo rozsah beze změny: `station_agent/dxcc.py::PREFIX_TABLE` zůstává
+  záměrně neúplná (offline rychlá tabulka), `adapters/qrz.py` a
+  `aggregator.py` nebyly touto iterací nijak upraveny -- jen doplněny
+  testy dokazující už existující obecnost. Produkční live ověření proti
+  skutečnému `xmldata.qrz.com` s reálnými přihlašovacími údaji zůstává
+  mimo možnosti tohoto sandboxu (žádné QRZ.com přihlašovací údaje nejsou
+  nastavené v `config.yaml`), stejně jako zdokumentováno u předchozí
+  QRZ iterace.
