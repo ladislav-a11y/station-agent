@@ -28,6 +28,21 @@ class DXCCTests(unittest.TestCase):
         result = callsign_to_dxcc("PY2ABC/W1")
         self.assertEqual(result.name, "Brazil")
 
+    def test_us_subentities_win_over_generic_k_prefix(self):
+        # KH6/KL7/KP4 jsou samostatné DXCC entity uvnitř obecného "K"
+        # bloku -- delší prefix musí vyhrát nad generickým "United States".
+        self.assertEqual(callsign_to_dxcc("KH6XYZ").name, "Hawaii")
+        self.assertEqual(callsign_to_dxcc("KL7ABC").name, "Alaska")
+        self.assertEqual(callsign_to_dxcc("KP4DEF").name, "Puerto Rico")
+        self.assertEqual(callsign_to_dxcc("K1ABC").name, "United States")
+
+    def test_additional_known_prefixes(self):
+        self.assertEqual(callsign_to_dxcc("9V1AB").name, "Singapore")
+        self.assertEqual(callsign_to_dxcc("HS0ZZZ").name, "Thailand")
+        self.assertEqual(callsign_to_dxcc("YB1ABC").name, "Indonesia")
+        self.assertEqual(callsign_to_dxcc("HZ1AB").name, "Saudi Arabia")
+        self.assertEqual(callsign_to_dxcc("9Y4D").name, "Trinidad & Tobago")
+
 
 if __name__ == "__main__":
     unittest.main()
