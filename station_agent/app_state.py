@@ -76,6 +76,7 @@ class AppState:
                 if c.band in self.config.bands and c.mode in self.config.modes
             ]
             self.latest_candidates = candidates
+            self._sync_current_score(candidates)
             if context is None:
                 logger.debug("propagation snapshot: nedostupný")
             else:
@@ -99,6 +100,31 @@ class AppState:
                 )
             self._check_band_openings(all_candidates, now=now)
             return candidates
+
+    def _sync_current_score(self, candidates: list[Candidate]) -> None:
+        """Skóre aktuálně naladěné stanice nesmí zůstat zamrzlé na hodnotě
+        z okamžiku výběru (viz autotune.apply_decision) -- AutoTuneEngine.decide()
+        ho v kroku 7 porovnává s průběžně přepočítávanými kandidáty (delta
+        vs. min_score_delta), takže musí být stejně čerstvé jako u ostatních
+        -- jinak by naladěná stanice mohla vypadat uměle lepší/horší, než
+        ve skutečnosti je, a AUTO TUNE by se podle toho rozhodoval špatně.
+        Pokud stanice mezi aktuálními kandidáty už není (spot expiroval,
+        vypadl z filtrů), poslední známé skóre se zachovává beze změny.
+        """
+        state = self.current_rig_state
+        if state is None or state.callsign is None:
+            return
+        match = next(
+            (
+                c for c in candidates
+                if c.callsign == state.callsign
+                and c.freq_hz == state.freq_hz
+                and c.mode == state.mode
+            ),
+            None,
+        )
+        if match is not None:
+            state.score = match.score.total if match.score else None
 
     def _check_band_openings(self, candidates: list[Candidate], now: float) -> None:
         """Zavolá BandOpeningTracker nad úplnou aktivitou zdrojů,

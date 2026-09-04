@@ -12,6 +12,7 @@ from station_agent.aggregator import Aggregator
 from station_agent.app_state import AppState
 from station_agent.config import AppConfig, NotificationsConfig
 from station_agent.db import Database
+from station_agent.models import Candidate, RigState, ScoreResult
 from station_agent.propagation import PropagationContext
 from station_agent.rig.mock_rig import MockRig
 
@@ -112,6 +113,61 @@ class BandOpeningIntegrationTests(unittest.TestCase):
         app_state = build_app_state()  # default min_distinct_stations=5, mock nemá tolik stanic na jednom pásmu
         app_state.refresh_candidates(now=1000.0)
         self.assertEqual(app_state.db.recent_band_openings(), [])
+        app_state.aggregator.close()
+        app_state.db.close()
+
+
+class CurrentStationScoreFreshnessTests(unittest.TestCase):
+    """Regrese: skóre aktuálně naladěné stanice nesmí zůstat zamrzlé na
+    hodnotě z okamžiku výběru -- AutoTuneEngine.decide() ho porovnává
+    s průběžně přepočítávanými kandidáty (viz autotune.py pravidlo 7),
+    takže se musí aktualizovat stejně jako u ostatních kandidátů."""
+
+    def test_sync_current_score_updates_from_matching_candidate(self):
+        app_state = build_app_state()
+        app_state.current_rig_state = RigState(
+            freq_hz=14_195_000, mode="SSB", tuned_at=1000.0, callsign="JA1XYZ", score=10,
+        )
+        candidate = Candidate(
+            callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", band="20m",
+            first_seen=1000.0, last_seen=1000.0, score=ScoreResult(total=77, reasons=[]),
+        )
+
+        app_state._sync_current_score([candidate])
+
+        self.assertEqual(app_state.current_rig_state.score, 77)
+        app_state.aggregator.close()
+        app_state.db.close()
+
+    def test_sync_current_score_preserves_last_known_when_station_not_among_candidates(self):
+        app_state = build_app_state()
+        app_state.current_rig_state = RigState(
+            freq_hz=14_195_000, mode="SSB", tuned_at=1000.0, callsign="JA1XYZ", score=10,
+        )
+
+        app_state._sync_current_score([])
+
+        self.assertEqual(app_state.current_rig_state.score, 10)
+        app_state.aggregator.close()
+        app_state.db.close()
+
+    def test_refresh_candidates_updates_score_of_currently_tuned_station(self):
+        """End-to-end: dřív refresh_candidates() přepočítal skóre jen pro
+        ostatní kandidáty a current_rig_state.score zůstal navždy takový,
+        jaký byl v okamžiku ladění (apply_decision) -- i po refreshi, který
+        pro tu samou stanici spočítal jiné skóre."""
+        app_state = build_app_state()
+        app_state.refresh_candidates(now=1_700_000_000.0)
+        app_state.current_rig_state = RigState(
+            freq_hz=14_195_000, mode="SSB", tuned_at=1_700_000_000.0,
+            callsign="JA1XYZ", score=1,
+        )
+
+        app_state.refresh_candidates(now=1_700_000_050.0)
+
+        updated = next(c for c in app_state.latest_candidates if c.callsign == "JA1XYZ")
+        self.assertEqual(app_state.current_rig_state.score, updated.score.total)
+        self.assertNotEqual(app_state.current_rig_state.score, 1)
         app_state.aggregator.close()
         app_state.db.close()
 
