@@ -211,7 +211,11 @@ function renderRigStatus(status) {
     return;
   }
   const call = rig.callsign ? ` -- ${rig.callsign}` : "";
-  const country = rig.country ? ` -- ${rig.country}` : "";
+  // Stanice je naladěná (callsign známý), ale ani offline tabulka, ani
+  // QRZ fallback zemi nedohledaly -- nic se nevymýšlí, jasně se to označí
+  // "?" stejně jako u řádku kandidáta (viz `country` výše), místo aby se
+  // celý údaj o zemi mlčky vynechal.
+  const country = rig.callsign ? ` -- ${rig.country || "?"}` : "";
   const path = rig.bearing_deg == null ? "" : ` -- ${rig.bearing_deg.toFixed(0)}° / ${rig.distance_km == null ? "?" : rig.distance_km.toFixed(0)} km`;
   el.textContent = `rig (${status.rig_mode}): ${(rig.freq_hz / 1e6).toFixed(3)} MHz ${rig.mode}${call}${country}${path}`;
 }

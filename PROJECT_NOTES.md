@@ -502,3 +502,39 @@
   o žádné nové prefixy (to by bylo přímé "hard-codování", zadání výslovně
   žádá obecný mechanismus) a žádný jiný adaptér/scoring/rig/log4om kód
   nebyl dotčen.
+
+## Označení nedohledané stanice, i když selže i QRZ fallback -- iterace 1/10 -- 04.09.2026
+
+* Samostatný navazující rozsah k sekci výše: ošetřit případ, kdy ani
+  QRZ fallback zemi/DXCC neověřitelně nedohledá -- nic nevymýšlet a
+  jasně zachovat/označit stanici jako nedohledanou ("?").
+* Řetězec `dxcc.py::callsign_to_dxcc` -> volitelný `dxcc_fallback`
+  (`aggregator.attach_dxcc_and_bearing`) už předtím korektně nechává
+  `candidate.country`/`candidate.dxcc` na `None`, když oba kroky selžou
+  (`tests/test_aggregator.py::DxccBearingTests::
+  test_dxcc_fallback_none_result_keeps_country_missing`,
+  `test_no_fallback_configured_preserves_existing_behaviour`) -- nic se
+  nevymýšlí, beze změny.
+* Skutečná mezera byla v zobrazení GUI stavu **naladěné** stanice
+  (`web/static/app.js::renderRigStatus`), ne u seznamu kandidátů: řádek
+  kandidáta už `?` zobrazoval korektně (`c.country || (c.dxcc &&
+  c.dxcc.name) || "?"`, řádek 117), ale stavový řádek naladěné stanice
+  při `rig.country` chybějícím (offline tabulka i QRZ fallback selhaly)
+  celý segment země mlčky vynechal -- žádné "?", žádná indikace, že
+  lookup proběhl a nedohledal se, což neodpovídá požadavku "jasně
+  označit".
+* Oprava: `country` segment se nyní zobrazí, kdykoli je `rig.callsign`
+  známý (stanice je naladěná), s `rig.country || "?"` -- shodná logika
+  jako u řádku kandidáta. Když `rig.callsign` chybí (rig zatím nemá
+  naladěnou žádnou konkrétní DX stanici, např. čerstvě přečtený stav
+  z hardwaru bez odpovídajícího kandidáta), segment země zůstává prázdný
+  jako dřív -- tam by "?" bylo zavádějící (nejde o nedohledanou stanici,
+  žádná stanice se nezobrazuje).
+* Čistě prezentační JS oprava bez přidané logiky lookupu -- projekt nemá
+  JS testový runner (`AGENTS.md` vyžaduje jen `python -m unittest
+  discover`), stejný precedens jako doprovodná GUI oprava `dxcc.continent`
+  v sekci výše. Python testová sada (`python -m pytest -q`) tímto
+  nedotčena; spuštění provádí výhradně orchestrátor.
+* Mimo rozsah beze změny: `dxcc.py`, `aggregator.py`, `adapters/qrz.py`,
+  `autotune.py`/`models.py` (RigState.country zůstává pravdivě `None`,
+  "?" je jen prezentační vrstva, stejně jako u kandidátů) nebyly dotčeny.
