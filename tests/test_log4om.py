@@ -18,6 +18,7 @@ def make_candidate() -> Candidate:
         last_seen=now,
         dxcc=DXCCEntity("Czech Republic", "OK", "EU", 50.0, 14.0),
         bearing_deg=91.2,
+        distance_km=1234.5,
         score=ScoreResult(total=80, reasons=[]),
     )
 
@@ -31,6 +32,13 @@ class PrefillBuildingTests(unittest.TestCase):
         self.assertEqual(fields["mode"], "SSB")
         self.assertEqual(fields["dxcc"], "Czech Republic")
         self.assertEqual(fields["bearing_deg"], "91")
+        self.assertEqual(fields["distance_km"], "1234")
+
+    def test_build_prefill_fields_missing_distance_is_empty_string(self):
+        candidate = make_candidate()
+        candidate.distance_km = None
+        fields = build_prefill_fields(candidate)
+        self.assertEqual(fields["distance_km"], "")
 
     def test_build_prefill_xml_escapes_special_characters(self):
         fields = build_prefill_fields(make_candidate())

@@ -33,6 +33,7 @@ def build_prefill_fields(candidate: Candidate, station_callsign: str = "") -> di
         "mode": candidate.mode,
         "dxcc": candidate.dxcc.name if candidate.dxcc else "",
         "bearing_deg": f"{candidate.bearing_deg:.0f}" if candidate.bearing_deg is not None else "",
+        "distance_km": f"{candidate.distance_km:.0f}" if candidate.distance_km is not None else "",
     }
     return fields
 
