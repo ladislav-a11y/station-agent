@@ -489,12 +489,40 @@ for (const id of ["at-min-score", "at-min-hold", "at-min-delta"]) {
   document.getElementById(id).addEventListener("change", updateAutotune);
 }
 
+// Ukončit: zastaví polling i webový server a vyčistí obsah databáze (viz
+// web/server.py POST /api/shutdown a _perform_shutdown). Potvrzovací dialog
+// chrání před nechtěným kliknutím -- akce je nevratná (smaže historii spotů,
+// AUTO TUNE log i QSO historii).
+document.getElementById("shutdown-button").addEventListener("click", async () => {
+  const confirmed = window.confirm(
+    "Opravdu ukončit Station Agenta? Zastaví se polling i webové GUI a vyčistí se obsah databáze station_agent.sqlite3."
+  );
+  if (!confirmed) return;
+
+  const button = document.getElementById("shutdown-button");
+  button.disabled = true;
+  button.textContent = "Ukončuji...";
+  try {
+    await fetch("/api/shutdown", { method: "POST" });
+  } catch (err) {
+    // Server může spojení zavřít dřív, než se odpověď stihne doručit --
+    // to je po odeslání potvrzení očekávané, ne chyba.
+    console.debug("Ukončení: spojení se serverem skončilo", err);
+  }
+  for (const intervalId of refreshIntervalIds) {
+    clearInterval(intervalId);
+  }
+  document.body.innerHTML = '<p class="shutdown-message">Station Agent byl ukončen. Toto okno můžeš zavřít.</p>';
+});
+
 refreshStatus();
 refreshCandidates();
 refreshNotifications();
 refreshQsoHistory();
-setInterval(refreshStatus, 5000);
-setInterval(refreshCandidates, 5000);
-setInterval(refreshNotifications, 15000);
-setInterval(refreshQsoHistory, 15000);
-setInterval(renderHoldCountdown, 1000);
+const refreshIntervalIds = [
+  setInterval(refreshStatus, 5000),
+  setInterval(refreshCandidates, 5000),
+  setInterval(refreshNotifications, 15000),
+  setInterval(refreshQsoHistory, 15000),
+  setInterval(renderHoldCountdown, 1000),
+];

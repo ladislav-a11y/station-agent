@@ -5,16 +5,19 @@ from __future__ import annotations
 
 import json
 import socket
+import sqlite3
+import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 import urllib.error
 import urllib.request
 
 from station_agent.adapters.mock import MockAdapter
 from station_agent.aggregator import Aggregator
-from station_agent.app_state import AppState
+from station_agent.app_state import AppState, PollingLoop
 from station_agent.config import AppConfig, NotificationsConfig, WebConfig
 from station_agent.db import Database
 from station_agent.models import RigState
@@ -83,6 +86,18 @@ class WebApiTests(unittest.TestCase):
         status, content_type, _ = self._get("/style.css")
         self.assertEqual(status, 200)
         self.assertIn("css", content_type)
+
+    def test_gui_has_visible_shutdown_button_wired_to_shutdown_endpoint(self):
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+        self.assertIn('id="shutdown-button"', page)
+        self.assertIn("Ukončit", page)
+
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn('getElementById("shutdown-button")', script)
+        self.assertIn('fetch("/api/shutdown"', script)
+        self.assertIn("window.confirm(", script)
 
     def test_autotune_and_hold_use_immediate_rocker_and_reset_manual_selection(self):
         _, _, html = self._get("/")
@@ -597,6 +612,92 @@ class AbruptSocketDisconnectIntegrationTests(unittest.TestCase):
 
         with urllib.request.urlopen(f"http://{self.host}:{self.port}/api/status", timeout=5) as resp:
             self.assertEqual(resp.status, 200)
+
+
+class ShutdownEndpointTests(unittest.TestCase):
+    """POST /api/shutdown je tlačítko "Ukončit" v GUI (DoD): musí v tomto
+    pořadí zastavit polling, zastavit web server, uzavřít spojení a teprve
+    pak vyčistit obsah databáze -- soubor a schéma zůstávají zachované,
+    mažou se jen řádky (viz Database.clear_all_data)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.db_path = str(Path(self.tmpdir.name) / "station_agent.sqlite3")
+
+        config = AppConfig()
+        config.web = WebConfig(host="127.0.0.1", port=0)
+        db = Database(self.db_path)
+        rig = MockRig()
+        scoring_cfg = ScoringConfig(weights=dict(DEFAULT_WEIGHTS), spot_max_age_minutes=15)
+        aggregator = Aggregator([MockAdapter()], db, scoring_cfg, qth_latlon=(50.0755, 14.4378))
+        self.app_state = AppState(config, db, rig, aggregator)
+        self.app_state.refresh_candidates()  # naplní tabulku spots reálnými řádky
+
+        self.polling_loop = PollingLoop(self.app_state, interval_seconds=0.05)
+        self.polling_loop.start()
+
+        self.server = create_server(self.app_state, self.polling_loop)
+        self.host, self.port = self.server.server_address[0], self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def _wait_until(self, predicate, timeout: float = 5.0, interval: float = 0.02) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if predicate():
+                return True
+            time.sleep(interval)
+        return predicate()
+
+    def test_shutdown_stops_polling_and_server_then_clears_database_content(self):
+        check_conn = sqlite3.connect(self.db_path)
+        try:
+            spots_before = check_conn.execute("SELECT COUNT(*) FROM spots").fetchone()[0]
+        finally:
+            check_conn.close()
+        self.assertGreater(spots_before, 0)
+
+        req = urllib.request.Request(
+            f"http://{self.host}:{self.port}/api/shutdown", data=b"{}", method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read())
+            self.assertTrue(data["ok"])
+
+        # Polling se zastaví (vlákno se ukončí a PollingLoop.stop() ho vyresetuje na None).
+        self.assertTrue(self._wait_until(lambda: self.polling_loop._thread is None))
+        # Web server přestane obsluhovat serve_forever().
+        self.assertTrue(self._wait_until(lambda: not self.thread.is_alive()))
+
+        def _original_connection_closed() -> bool:
+            try:
+                self.app_state.db._conn.execute("SELECT 1")
+                return False
+            except sqlite3.ProgrammingError:
+                return True
+
+        # Čeká, až _perform_shutdown skutečně zavolá db.close() -- ne jen na
+        # to, že data jsou vyčištěná (commit by mohl proběhnout dřív, než
+        # se stihne zavolat close(), a soubor by tak na Windows zůstal
+        # otevřený/zamčený pro následný úklid tmpdir).
+        self.assertTrue(self._wait_until(_original_connection_closed))
+
+        check_conn = sqlite3.connect(self.db_path)
+        try:
+            for table in Database.DATA_TABLES:
+                count = check_conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                self.assertEqual(count, 0, table)
+            # Soubor a schéma zůstávají zachované -- žádná tabulka nezmizela.
+            tables = {
+                row[0]
+                for row in check_conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+        finally:
+            check_conn.close()
+        for table in Database.DATA_TABLES:
+            self.assertIn(table, tables)
 
 
 class CreateServerSafetyTests(unittest.TestCase):

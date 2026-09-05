@@ -45,6 +45,26 @@ h1 {
 .source-error { background: #c6282844; }
 .source-backoff { background: #f9a82544; }
 
+.shutdown-button {
+  background: #c62828;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.shutdown-button:hover { background: #a02020; }
+.shutdown-button:disabled { opacity: 0.6; cursor: default; }
+
+.shutdown-message {
+  padding: 2rem;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
 .panel {
   margin-top: 1.25rem;
   padding: 1rem;

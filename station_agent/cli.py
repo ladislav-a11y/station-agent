@@ -275,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     loop.start()
 
     try:
-        server = create_server(app_state)
+        server = create_server(app_state, loop)
     except OSError as exc:
         # web.port projde load_config()/WebConfig validaci rozsahu (viz
         # DIAGNOSIS_P5.md), ale platný port muze byt uz obsazeny jinym

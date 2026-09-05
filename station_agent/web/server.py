@@ -11,12 +11,13 @@ import json
 import logging
 import math
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from station_agent.app_state import AppState
+from station_agent.app_state import AppState, PollingLoop
 from station_agent.bandplan import SUPPORTED_BANDS
 from station_agent.modes import SUPPORTED_MODES
 from station_agent.web.serialization import candidate_to_dict, decision_to_dict, rig_state_to_dict
@@ -98,7 +99,47 @@ def _build_status(app_state: AppState) -> dict:
         }
 
 
-def _make_handler(app_state: AppState):
+def _perform_shutdown(
+    app_state: AppState, polling_loop: PollingLoop | None, http_server: ThreadingHTTPServer
+) -> None:
+    """Bezpečné ukončení vyžádané tlačítkem "Ukončit" v GUI.
+
+    Pořadí je závazné (viz DoD): nejdřív zastavit polling a webový server,
+    pak uzavřít spojení (agregátor živých zdrojů, rig) a teprve pak vyčistit
+    obsah databáze -- v tomto pořadí nemůže žádný souběžný poll ani HTTP
+    request zapsat do DB uprostřed čištění. Běží v samostatném vlákně (viz
+    volání níže v do_POST), aby handler mohl klientovi nejdřív odeslat
+    potvrzení a až pak se server sám zastavil (ThreadingHTTPServer.shutdown()
+    blokuje, dokud serve_forever() ve vlákně, které ho spustilo, neskončí).
+    """
+    logger.info("Ukončení Station Agenta vyžádáno z GUI (tlačítko Ukončit)")
+    if polling_loop is not None:
+        try:
+            polling_loop.stop()
+        except Exception:
+            logger.exception("Zastavení pollingu při ukončení selhalo")
+    try:
+        http_server.shutdown()
+    except Exception:
+        logger.exception("Zastavení web serveru při ukončení selhalo")
+    with app_state.lock:
+        try:
+            app_state.aggregator.close()
+        except Exception:
+            logger.exception("Uzavření zdrojů při ukončení selhalo")
+        try:
+            app_state.rig.close()
+        except Exception:
+            logger.exception("Uzavření spojení s riggem při ukončení selhalo")
+        try:
+            app_state.db.clear_all_data()
+        except RuntimeError:
+            logger.exception("Vyčištění databáze při ukončení selhalo")
+        finally:
+            app_state.db.close()
+
+
+def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "StationAgent/0.1"
 
@@ -215,8 +256,21 @@ def _make_handler(app_state: AppState):
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path not in ("/api/autotune", "/api/filters", "/api/tune", "/api/qso/history"):
+            if path not in (
+                "/api/autotune", "/api/filters", "/api/tune", "/api/qso/history", "/api/shutdown",
+            ):
                 self._safe_send_error(404)
+                return
+            if path == "/api/shutdown":
+                # Odpověď se posílá hned, ať klient dostane potvrzení dřív,
+                # než se server sám zastaví -- viz _perform_shutdown výše.
+                self._send_json({"ok": True, "message": "Station Agent se ukončuje"})
+                threading.Thread(
+                    target=_perform_shutdown,
+                    args=(app_state, polling_loop, self.server),
+                    name="station-agent-shutdown",
+                    daemon=True,
+                ).start()
                 return
             length = int(self.headers.get("Content-Length", "0") or "0")
             raw = self.rfile.read(length) if length else b"{}"
@@ -344,12 +398,12 @@ class _QuietThreadingHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def create_server(app_state: AppState) -> ThreadingHTTPServer:
+def create_server(app_state: AppState, polling_loop: PollingLoop | None = None) -> ThreadingHTTPServer:
     host = app_state.config.web.host
     if host not in LOOPBACK_HOSTS:
         raise ValueError(
             f"Web GUI smí běžet pouze na localhost, ne na {host!r} -- "
             "toto omezení je vynucené v kódu bez ohledu na config.yaml."
         )
-    handler_cls = _make_handler(app_state)
+    handler_cls = _make_handler(app_state, polling_loop)
     return _QuietThreadingHTTPServer((host, app_state.config.web.port), handler_cls)
