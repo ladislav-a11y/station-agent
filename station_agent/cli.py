@@ -252,6 +252,27 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
+        # Vyčištění databáze musí proběhnout při každém startu, ještě před
+        # prvním načtením dat (refresh_candidates níže volá
+        # aggregator.poll_once/build_candidates) -- jinak by se nová relace
+        # mohla rozhodovat nad daty z předchozího běhu. clear_all_data()
+        # (viz db.py) při selhání vyhodí RuntimeError a nikdy neponechá
+        # částečně vyčištěný/neověřený stav -- takový stav se proto nesmí
+        # použít k dalšímu běhu, Station Agent musí skončit chybou stejně
+        # jako u ostatních kroků startu níže.
+        app_state.db.clear_all_data()
+    except RuntimeError as exc:
+        logger.error(
+            "Vyčištění databáze při startu selhalo, Station Agent se nespustí "
+            "s neověřeným stavem databáze: %s",
+            exc,
+        )
+        app_state.aggregator.close()
+        app_state.db.close()
+        app_state.rig.close()
+        return 1
+
+    try:
         # Počáteční naplnění kandidátů běží synchronně před spuštěním web
         # serveru (viz refresh_candidates -- volá aggregator.poll_once,
         # DB purge i build_candidates/scoring). Dřív běželo úplně mimo

@@ -332,6 +332,74 @@ class MissingConfigStartupTests(unittest.TestCase):
         self.assertIn("neplatn", log_output)
 
 
+class StartupDatabaseCleanupTests(unittest.TestCase):
+    def test_normal_startup_clears_database_before_first_candidate_load(self):
+        """Vyčištění databáze (Database.clear_all_data) se musí zapojit i do
+        běžného startu (bez --clear-database), ne jen do samostatné údržbové
+        volby --clear-database, která agenta vůbec nespouští. Musí proběhnout
+        před prvním načtením dat (refresh_candidates), aby nová relace nikdy
+        nezačínala nad daty z předchozího běhu. create_server je zmockovaný
+        na OSError jen proto, aby test neblokoval na server.serve_forever()
+        -- vyčištění i refresh_candidates už v tu chvíli proběhly reálně."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = str(Path(temp_dir) / "config.yaml")
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            Path(config_path).write_text(
+                "database:\n"
+                f"  path: {database_path}\n"
+                "sources:\n"
+                "  mock:\n"
+                "    enabled: false\n"
+                "propagation:\n"
+                "  enabled: false\n",
+                encoding="utf-8",
+            )
+            with Database(database_path) as db:
+                db.mark_worked("Czech Republic")
+                db.log_autotune("OK1ABC", 14_195_000, "SSB", 82, "test reason")
+
+            with mock.patch(
+                "station_agent.cli.create_server",
+                side_effect=OSError("nechceme tu skutečný server, jen ověřit pořadí kroků"),
+            ):
+                exit_code = main(["--config", config_path])
+
+            self.assertEqual(exit_code, 1)
+            with Database(database_path) as db:
+                self.assertEqual(db.worked_entities(), set())
+                self.assertEqual(db.autotune_history(), [])
+
+    def test_main_exits_cleanly_and_skips_candidate_load_when_startup_cleanup_fails(self):
+        """Při selhání vyčištění databáze (RuntimeError z clear_all_data,
+        viz db.py) nesmí Station Agent pokračovat s neověřeným stavem --
+        refresh_candidates (první načtení dat) se nesmí vůbec zavolat."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = str(Path(temp_dir) / "config.yaml")
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            Path(config_path).write_text(
+                "database:\n"
+                f"  path: {database_path}\n"
+                "sources:\n"
+                "  mock:\n"
+                "    enabled: false\n"
+                "propagation:\n"
+                "  enabled: false\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "station_agent.cli.Database.clear_all_data",
+                side_effect=RuntimeError("boom"),
+            ), mock.patch(
+                "station_agent.cli.AppState.refresh_candidates"
+            ) as refresh_mock:
+                with self.assertLogs("station_agent.cli", level="ERROR") as logs:
+                    exit_code = main(["--config", config_path])
+                refresh_mock.assert_not_called()
+        self.assertEqual(exit_code, 1)
+        log_output = "\n".join(logs.output)
+        self.assertIn("boom", log_output)
+
+
 class ClearDatabaseCliTests(unittest.TestCase):
     def test_clear_database_flag_wipes_content_keeps_file_and_does_not_start_agent(self):
         with tempfile.TemporaryDirectory() as temp_dir:
