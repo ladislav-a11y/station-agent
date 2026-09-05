@@ -29,7 +29,7 @@ class BandOpeningEvent:
 
 
 def _event_band_and_ts(previous_event) -> tuple[str, float]:
-    if isinstance(previous_event, dict):
+    if hasattr(previous_event, "keys"):
         return previous_event["band"], previous_event["ts"]
     return previous_event.band, previous_event.ts
 

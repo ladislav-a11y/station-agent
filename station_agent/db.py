@@ -343,7 +343,11 @@ class Database:
         )
         self._conn.commit()
 
-    def recent_band_openings(self, limit: int = 50) -> list[sqlite3.Row]:
+    def recent_band_openings(self, limit: int | None = 50) -> list[sqlite3.Row]:
+        if limit is None:
+            return self._conn.execute(
+                "SELECT * FROM band_openings ORDER BY ts DESC"
+            ).fetchall()
         return self._conn.execute(
             "SELECT * FROM band_openings ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()

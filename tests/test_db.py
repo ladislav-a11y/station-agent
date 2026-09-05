@@ -98,6 +98,12 @@ class DatabaseTests(unittest.TestCase):
         recent = self.db.recent_band_openings(limit=2)
         self.assertEqual(len(recent), 2)
 
+    def test_band_openings_can_return_complete_history(self):
+        for i in range(55):
+            self.db.log_band_opening("20m", 5 + i, ts=1000.0 + i)
+        recent = self.db.recent_band_openings(limit=None)
+        self.assertEqual(len(recent), 55)
+
     def test_qso_history_is_explicit_and_newest_first(self):
         self.assertEqual(self.db.recent_qsos(), [])
         self.db.log_qso("OK1ABC", 14_195_000, "SSB", "20m", 123.4, "první", ts=10)

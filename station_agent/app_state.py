@@ -42,6 +42,7 @@ class AppState:
         self.last_decision: TuneDecision | None = None
         self.band_opening_tracker = BandOpeningTracker(
             config.notifications,
+            db.recent_band_openings(limit=None),
         )
         self.lock = threading.RLock()
 

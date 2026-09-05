@@ -27,7 +27,36 @@ def build_app_state(notifications_cfg: NotificationsConfig | None = None) -> App
     return AppState(config, db, rig, aggregator)
 
 
+def build_app_state_with_db(
+    db: Database, notifications_cfg: NotificationsConfig,
+) -> AppState:
+    config = AppConfig()
+    config.notifications = notifications_cfg
+    aggregator = Aggregator(
+        [MockAdapter()], db, config.scoring, qth_latlon=(50.0755, 14.4378)
+    )
+    return AppState(config, db, MockRig(), aggregator)
+
+
 class BandOpeningIntegrationTests(unittest.TestCase):
+    def test_restart_restores_cooldown_and_global_hourly_limit(self):
+        cfg = NotificationsConfig(
+            enabled=True, min_distinct_stations=2,
+            cooldown_minutes=30.0, max_per_hour=2,
+        )
+        db = Database(":memory:")
+        db.log_band_opening("20m", 3, ts=990.0)
+        db.log_band_opening("40m", 3, ts=995.0)
+
+        app_state = build_app_state_with_db(db, cfg)
+        events = app_state.band_opening_tracker.check(
+            {"20m": 3, "15m": 3}, now=1000.0
+        )
+
+        self.assertEqual(events, [])
+        app_state.aggregator.close()
+        app_state.db.close()
+
     def test_hourly_propagation_is_used_by_scoring_and_logged_in_full(self):
         """Regrese pro audit: snapshot nesmí jen existovat vedle scoringu.
 
