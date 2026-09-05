@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import time
 import unittest
 import tempfile
 from pathlib import Path
@@ -10,6 +11,7 @@ from station_agent.adapters.dx_cluster import DXClusterAdapter, RECOMMENDED_PROV
 from station_agent.cli import build_app_state, build_sources, main
 from station_agent.config import config_from_dict, load_config
 from station_agent.db import Database
+from station_agent.models import Spot
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -340,23 +342,42 @@ class StartupDatabaseCleanupTests(unittest.TestCase):
         před prvním načtením dat (refresh_candidates), aby nová relace nikdy
         nezačínala nad daty z předchozího běhu. create_server je zmockovaný
         na OSError jen proto, aby test neblokoval na server.serve_forever()
-        -- vyčištění i refresh_candidates už v tu chvíli proběhly reálně."""
+        -- vyčištění i refresh_candidates už v tu chvíli proběhly reálně.
+
+        Zasetá data pokrývají všechny tabulky z Database.DATA_TABLES (staré
+        spoty, AUTO TUNE log, band-opening historii, QSO historii i worked-
+        DXCC cache), aby test odpovídal DoD požadavku "nezůstanou staré...
+        ani jiné aplikační záznamy". Zároveň ověřuje, že config.yaml zůstane
+        po startu bajtově beze změny -- čištění smí mazat jen řádky v DB,
+        nikdy konfiguraci ani zdrojový kód."""
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = str(Path(temp_dir) / "config.yaml")
             database_path = str(Path(temp_dir) / "station.sqlite3")
-            Path(config_path).write_text(
+            config_text = (
                 "database:\n"
                 f"  path: {database_path}\n"
                 "sources:\n"
                 "  mock:\n"
                 "    enabled: false\n"
                 "propagation:\n"
-                "  enabled: false\n",
-                encoding="utf-8",
+                "  enabled: false\n"
             )
+            Path(config_path).write_text(config_text, encoding="utf-8")
             with Database(database_path) as db:
+                db.insert_spot(
+                    Spot(
+                        callsign="OK1ABC",
+                        freq_hz=14_195_000,
+                        mode="SSB",
+                        timestamp=time.time(),
+                        source="mock",
+                    )
+                )
                 db.mark_worked("Czech Republic")
                 db.log_autotune("OK1ABC", 14_195_000, "SSB", 82, "test reason")
+                db.log_band_opening("20m", 6)
+                db.log_qso("OK1ABC", 14_195_000, "SSB", "20m")
+                db.save_filter_preferences(["20m"], ["SSB"])
 
             with mock.patch(
                 "station_agent.cli.create_server",
@@ -366,8 +387,18 @@ class StartupDatabaseCleanupTests(unittest.TestCase):
 
             self.assertEqual(exit_code, 1)
             with Database(database_path) as db:
+                self.assertEqual(db.recent_spots(max_age_seconds=86400), [])
                 self.assertEqual(db.worked_entities(), set())
                 self.assertEqual(db.autotune_history(), [])
+                self.assertEqual(db.recent_band_openings(), [])
+                self.assertEqual(db.recent_qsos(), [])
+                self.assertIsNone(db.load_filter_preferences())
+
+            # Config a kód musí zůstat nedotčené -- čištění se smí týkat
+            # výhradně obsahu databáze.
+            self.assertEqual(Path(config_path).read_text(encoding="utf-8"), config_text)
+            self.assertTrue((REPO_ROOT / "station_agent" / "db.py").exists())
+            self.assertTrue((REPO_ROOT / "station_agent" / "cli.py").exists())
 
     def test_main_exits_cleanly_and_skips_candidate_load_when_startup_cleanup_fails(self):
         """Při selhání vyčištění databáze (RuntimeError z clear_all_data,

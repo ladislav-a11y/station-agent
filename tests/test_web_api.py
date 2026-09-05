@@ -634,6 +634,18 @@ class ShutdownEndpointTests(unittest.TestCase):
         self.app_state = AppState(config, db, rig, aggregator)
         self.app_state.refresh_candidates()  # naplní tabulku spots reálnými řádky
 
+        # Zaseje i zbylé DATA_TABLES (AUTO TUNE log, band-opening a QSO
+        # historii, worked-DXCC cache, uložené GUI filtry), aby test ověřil
+        # skutečné smazání starých záznamů přes shutdown endpoint, ne jen
+        # to, že tabulky byly prázdné už předtím (viz DoD -- "nezůstanou
+        # staré spoty, AUTO TUNE log, band-opening historie, QSO historie
+        # ani jiné aplikační záznamy").
+        db.mark_worked("Czech Republic")
+        db.log_autotune("OK1ABC", 14_195_000, "SSB", 82, "test reason")
+        db.log_band_opening("20m", 6)
+        db.log_qso("OK1ABC", 14_195_000, "SSB", "20m")
+        db.save_filter_preferences(["20m"], ["SSB"])
+
         self.polling_loop = PollingLoop(self.app_state, interval_seconds=0.05)
         self.polling_loop.start()
 
@@ -698,6 +710,17 @@ class ShutdownEndpointTests(unittest.TestCase):
             check_conn.close()
         for table in Database.DATA_TABLES:
             self.assertIn(table, tables)
+
+        # DoD: čištění při ukončení smí smazat jen řádky v DB, nikdy config
+        # ani zdrojový kód -- tmpdir obsahuje výhradně databázový soubor a
+        # repozitářový kód zůstává na disku nedotčený.
+        self.assertEqual(
+            {p.name for p in Path(self.tmpdir.name).iterdir()},
+            {Path(self.db_path).name},
+        )
+        repo_root = Path(__file__).resolve().parent.parent
+        self.assertTrue((repo_root / "station_agent" / "db.py").exists())
+        self.assertTrue((repo_root / "station_agent" / "web" / "server.py").exists())
 
 
 class CreateServerSafetyTests(unittest.TestCase):
