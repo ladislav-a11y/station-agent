@@ -332,6 +332,59 @@ class MissingConfigStartupTests(unittest.TestCase):
         self.assertIn("neplatn", log_output)
 
 
+class ClearDatabaseCliTests(unittest.TestCase):
+    def test_clear_database_flag_wipes_content_keeps_file_and_does_not_start_agent(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = str(Path(temp_dir) / "config.yaml")
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            Path(config_path).write_text(
+                "database:\n"
+                f"  path: {database_path}\n"
+                "sources:\n"
+                "  mock:\n"
+                "    enabled: false\n"
+                "propagation:\n"
+                "  enabled: false\n",
+                encoding="utf-8",
+            )
+            with Database(database_path) as db:
+                db.mark_worked("Czech Republic")
+                db.log_autotune("OK1ABC", 14_195_000, "SSB", 82, "test reason")
+
+            with self.assertLogs("station_agent.cli", level="INFO") as logs:
+                exit_code = main(["--config", config_path, "--clear-database"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(Path(database_path).exists())
+            log_output = "\n".join(logs.output)
+            self.assertIn("vyčištěna", log_output)
+
+            with Database(database_path) as db:
+                self.assertEqual(db.worked_entities(), set())
+                self.assertEqual(db.autotune_history(), [])
+
+    def test_clear_database_flag_reports_error_when_database_file_is_invalid(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = str(Path(temp_dir) / "config.yaml")
+            bad_database_path = str(Path(temp_dir) / "not_a_database.sqlite3")
+            Path(bad_database_path).write_text("not a real sqlite file", encoding="utf-8")
+            Path(config_path).write_text(
+                "database:\n"
+                f"  path: {bad_database_path}\n"
+                "sources:\n"
+                "  mock:\n"
+                "    enabled: false\n"
+                "propagation:\n"
+                "  enabled: false\n",
+                encoding="utf-8",
+            )
+            with self.assertLogs("station_agent.cli", level="ERROR") as logs:
+                exit_code = main(["--config", config_path, "--clear-database"])
+        self.assertEqual(exit_code, 1)
+        log_output = "\n".join(logs.output)
+        self.assertIn(bad_database_path, log_output)
+
+
 class FilterPreferenceStartupTests(unittest.TestCase):
     def test_build_app_state_restores_last_filter_choice_from_database(self):
         with tempfile.TemporaryDirectory() as temp_dir:

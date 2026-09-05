@@ -167,10 +167,55 @@ def build_app_state(config: AppConfig) -> AppState:
     return app_state
 
 
+def clear_database(config: AppConfig) -> int:
+    """Samostatná údržbová operace pro `--clear-database`: otevře databázi
+    danou `config.database.path`, vyčistí celý její obsah (spoty, AUTO TUNE
+    log, band-opening a QSO historii, worked-DXCC cache i uložené GUI
+    filtry) přes `Database.clear_all_data()` a skončí -- nespouští agenta
+    ani web GUI. Soubor, schéma a config.yaml zůstávají nedotčené.
+
+    Při selhání (nejde otevřít databáze, nebo `clear_all_data()` zjistí
+    neověřený/částečně vyčištěný stav) vrátí nenulový exit kód a nahlásí
+    důvod -- volající nesmí pokračovat, jako by čištění proběhlo.
+    """
+    try:
+        db = Database(config.database.path)
+    except sqlite3.DatabaseError as exc:
+        logger.error(
+            "Nelze otevřít databázi '%s' (database.path v config.yaml): %s",
+            config.database.path,
+            exc,
+        )
+        return 1
+    try:
+        removed = db.clear_all_data()
+    except RuntimeError as exc:
+        logger.error("Vyčištění databáze '%s' selhalo: %s", config.database.path, exc)
+        return 1
+    finally:
+        db.close()
+    logger.info(
+        "Databáze '%s' vyčištěna (soubor, schéma i konfigurace zachovány), "
+        "smazané řádky: %s",
+        config.database.path,
+        removed,
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="station-agent", description="Station Agent DX asistent")
     parser.add_argument("--config", default="config.yaml", help="cesta ke config.yaml")
     parser.add_argument("--poll-interval", type=float, default=10.0, help="interval pollingu v sekundách")
+    parser.add_argument(
+        "--clear-database",
+        action="store_true",
+        help=(
+            "vyčistí obsah databáze (spoty, AUTO TUNE log, band-opening a QSO "
+            "historii a další provozní záznamy), zachová soubor, schéma i "
+            "config.yaml, a skončí bez spuštění agenta"
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -181,7 +226,18 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config = load_config(args.config)
-        # build_app_state patří do stejného try -- i validní config.yaml
+    except FileNotFoundError as exc:
+        logger.error(str(exc))
+        return 1
+    except ValueError as exc:
+        logger.error("Konfigurace '%s' je neplatná: %s", args.config, exc)
+        return 1
+
+    if args.clear_database:
+        return clear_database(config)
+
+    try:
+        # build_app_state patří do vlastního try -- i validní config.yaml
         # může mít hodnotu, která se ověří/zkonvertuje až tady (např.
         # sources.dx_cluster.options.port jako netextové číslo se na int()
         # převádí až v build_sources(), ne při load_config()). Bez toho by

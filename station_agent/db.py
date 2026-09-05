@@ -379,3 +379,75 @@ class Database:
         return self._conn.execute(
             "SELECT * FROM qso_history ORDER BY ts DESC LIMIT ?", (limit,)
         ).fetchall()
+
+    # -- údržba: úplné vyčištění obsahu ------------------------------------
+
+    #: Všechny tabulky s daty, které `clear_all_data()` maže. Soubor,
+    #: schéma (`SCHEMA` výše) a config.yaml zůstávají nedotčené -- mažou
+    #: se jen řádky.
+    DATA_TABLES = (
+        "spots",
+        "worked_entities",
+        "autotune_log",
+        "band_openings",
+        "qso_history",
+        "filter_preferences",
+    )
+
+    def clear_all_data(self) -> dict[str, int]:
+        """Smaže veškerý obsah databáze (spoty, AUTO TUNE log, band-opening
+        historii, QSO historii, worked-DXCC cache i uložené GUI filtry) a
+        vrátí počet smazaných řádků na tabulku.
+
+        Soubor, schéma (struktura tabulek) i zdrojový kód zůstávají beze
+        změny -- maže se jen obsah. Běží v jedné transakci; při jakémkoli
+        selhání (výjimka, nebo neočekávaně neprázdná tabulka po commitu)
+        vyhodí ``RuntimeError`` a transakci vrátí zpět, aby volající nikdy
+        nepokračoval s neověřeným nebo částečně vyčištěným stavem.
+        """
+        try:
+            removed = {
+                table: self._conn.execute(f"DELETE FROM {table}").rowcount
+                for table in self.DATA_TABLES
+            }
+            self._conn.commit()
+        except Exception as exc:
+            try:
+                self._conn.rollback()
+            except Exception:
+                # Spojení může být mezitím zavřené/nedostupné (např. jiný
+                # proces) -- selhání samotného rollbacku nesmí zamaskovat
+                # původní chybu čištění hlášenou níže.
+                pass
+            raise RuntimeError(
+                f"Vyčištění databáze '{self.path}' selhalo, žádná data nebyla "
+                f"změněna: {exc}"
+            ) from exc
+
+        not_empty = {
+            table: count
+            for table in self.DATA_TABLES
+            if (count := self._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        }
+        if not_empty:
+            raise RuntimeError(
+                f"Vyčištění databáze '{self.path}' proběhlo, ale ověření po "
+                f"zápisu zjistilo neprázdné tabulky (možný souběžný zápis "
+                f"nebo poškozený stav): {not_empty}"
+            )
+
+        if self.path != ":memory:":
+            # Stejný důvod jako u purge_older_than výše -- bez incremental
+            # vacuum by DELETE jen naplnil freelist a soubor na disku by si
+            # držel starou velikost i po úplném vyčištění obsahu.
+            try:
+                self._conn.execute("PRAGMA incremental_vacuum").fetchall()
+                self._conn.commit()
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Data databáze '{self.path}' byla vyčištěna, ale "
+                    f"uvolnění místa na disku (incremental_vacuum) selhalo: "
+                    f"{exc}"
+                ) from exc
+
+        return removed

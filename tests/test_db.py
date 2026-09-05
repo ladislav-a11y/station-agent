@@ -107,6 +107,104 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(history[1]["bearing_deg"], 123.4)
 
 
+class ClearAllDataTests(unittest.TestCase):
+    def setUp(self):
+        self.db = Database(":memory:")
+
+    def tearDown(self):
+        self.db.close()
+
+    def _seed(self, db: Database, now: float) -> None:
+        db.insert_spot(
+            Spot(callsign="OK1ABC", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock")
+        )
+        db.mark_worked("Czech Republic")
+        db.log_autotune("OK1ABC", 14_195_000, "SSB", 82, "test reason", ts=now)
+        db.log_band_opening("20m", 6, ts=now)
+        db.log_qso("OK1ABC", 14_195_000, "SSB", "20m", 123.4, "test", ts=now)
+        db.save_filter_preferences(["20m"], ["SSB"])
+
+    def test_clear_all_data_empties_every_data_table_but_keeps_schema(self):
+        now = time.time()
+        self._seed(self.db, now)
+
+        removed = self.db.clear_all_data()
+
+        self.assertEqual(self.db.recent_spots(max_age_seconds=86400, now=now), [])
+        self.assertFalse(self.db.is_worked("Czech Republic"))
+        self.assertEqual(self.db.worked_entities(), set())
+        self.assertEqual(self.db.autotune_history(), [])
+        self.assertEqual(self.db.recent_band_openings(), [])
+        self.assertEqual(self.db.recent_qsos(), [])
+        self.assertIsNone(self.db.load_filter_preferences())
+        self.assertEqual(
+            removed,
+            {
+                "spots": 1,
+                "worked_entities": 1,
+                "autotune_log": 1,
+                "band_openings": 1,
+                "qso_history": 1,
+                "filter_preferences": 1,
+            },
+        )
+        # Schéma zůstává použitelné -- DB dál přijímá nové zápisy po vyčištění.
+        self.db.insert_spot(
+            Spot(callsign="W1AW", freq_hz=7_030_000, mode="CW", timestamp=now, source="mock")
+        )
+        self.assertEqual(len(self.db.recent_spots(max_age_seconds=60, now=now)), 1)
+
+    def test_clear_all_data_on_empty_database_is_a_noop_success(self):
+        removed = self.db.clear_all_data()
+        self.assertEqual(
+            removed,
+            {
+                "spots": 0,
+                "worked_entities": 0,
+                "autotune_log": 0,
+                "band_openings": 0,
+                "qso_history": 0,
+                "filter_preferences": 0,
+            },
+        )
+
+    def test_clear_all_data_reclaims_disk_space_on_file_database(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "station.sqlite3"
+            with Database(str(db_path)) as db:
+                now = time.time()
+                db.insert_spots(
+                    [
+                        Spot(
+                            callsign=f"OK1AA{i:03d}",
+                            freq_hz=14_195_000,
+                            mode="SSB",
+                            timestamp=now,
+                            source="mock",
+                            comment="x" * 500,
+                        )
+                        for i in range(500)
+                    ]
+                )
+                size_before = db_path.stat().st_size
+                db.clear_all_data()
+                freelist_count = db._conn.execute("PRAGMA freelist_count").fetchone()[0]
+                size_after = db_path.stat().st_size
+            self.assertEqual(freelist_count, 0)
+            self.assertLess(size_after, size_before)
+
+    def test_clear_all_data_failure_rolls_back_and_raises_instead_of_partial_state(self):
+        """Selhání uprostřed čištění (např. DB zavřená/nedostupná jiným
+        procesem) nesmí nechat volajícího pokračovat s domněnkou, že je
+        databáze čistá -- musí dostat výjimku, ne tichý částečný úspěch."""
+        now = time.time()
+        self._seed(self.db, now)
+        self.db._conn.close()
+
+        with self.assertRaises(RuntimeError):
+            self.db.clear_all_data()
+
+
 class DatabaseFileGrowthTests(unittest.TestCase):
     """Regrese pro nestandardní chování odhalené live testem 03.09.2026:
     soubor `.sqlite3` rostl na disku i přes pravidelné `purge_older_than`,
