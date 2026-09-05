@@ -771,3 +771,45 @@
   -- tato iterace pouze perzistuje nový evidenční dokument a tento
   záznam. Výsledek testů z minulé iterace nebyl k dispozici; spuštění
   provádí výhradně orchestrátor.
+
+## Doplnění chybějícího zobrazení lokátoru (souřadnic) v GUI -- iterace 1/10 -- 05.09.2026
+
+* Zadání (samostatný rozsah): "Zajistit konzistentní průchod země,
+  souřadnic, bearingu, vzdálenosti a stavů neznámých dat celou cestou
+  zdroj -> station agent -> agregátor/API -> GUI pro všechny podporované
+  typy vstupů. Zachovat chování mimo tento rozsah."
+* Statickou kontrolou celého řetězce (`adapters/*.py` -> `models.Spot` ->
+  `aggregator.group_spots_into_candidates`/`attach_dxcc_and_bearing` ->
+  `web/serialization.candidate_to_dict` -> `web/static/app.js`) ověřeno,
+  že `country`, `bearing_deg` a `distance_km` už byly konzistentně
+  doplňované (fallback z prefixu/QRZ, dopočet z QTH+lokátoru) i zobrazené
+  v GUI s jasným "?"/"-" pro neznámý stav (viz `DATA_CONTRACT.md`,
+  `tests/test_data_contract.py`, předchozí iterace výše).
+* Nalezena konkrétní "připravená, ale nezapojená" mezera: `locator`
+  (Maidenhead souřadnice stanice) je parsován adaptérem (PSKReporter),
+  prochází `group_spots_into_candidates` (nejnovější neprázdná hodnota
+  z clusteru), je uložen v `Candidate.locator` a serializován do JSON
+  (`candidate_to_dict`, kryto `tests/test_data_contract.py::
+  CandidateSerializationContractTests`) -- ale `web/static/app.js`
+  `renderCandidates()` tuto hodnotu z odpovědi API nikdy nečetl ani
+  nezobrazoval. Řetězec zdroj -> station agent -> agregátor/API byl tedy
+  pro souřadnice kompletní, GUI krok chyběl -- přesně "připravená, ale
+  nezapojená část" ve smyslu zadání.
+* Oprava (čistě GUI, žádná změna backendu/datového modelu):
+  `web/static/index.html` -- nový sloupec `<th>Lokátor</th>` v tabulce
+  kandidátů (mezi "DXCC / země" a "Frekvence"). `web/static/app.js` --
+  `renderCandidates()` čte `c.locator`, zobrazuje `"?"` pro neznámý stav
+  (stejný vzor jako existující `country`), nová `<td>` buňka mezi DXCC a
+  frekvencí; `colspan` prázdného řádku a řádku s rozpisem skóre zvýšen
+  z 8 na 9 podle nového počtu sloupců.
+* Mimo rozsah beze změny: žádný adaptér, `aggregator.py`,
+  `web/serialization.py`, datový model ani žádný Python test nebyl
+  upraven -- `locator` už byl korektně serializovaný, jen se nezobrazoval;
+  chování mimo GUI zůstává bit-přesně stejné. Projekt nemá JS testový
+  runner (`AGENTS.md` vyžaduje jen `python -m unittest discover`/pytest
+  nad Python testy), stejný precedens jako předchozí čistě GUI opravy
+  (viz "Označení nedohledané stanice..." výše) -- python testová sada
+  tímto nedotčena.
+* Výsledek testů z minulé iterace (`python -m pytest -q`) nebyl k
+  dispozici (viz zadání); spuštění a vyhodnocení kompletní sady zůstává
+  výhradně na orchestrátorovi.

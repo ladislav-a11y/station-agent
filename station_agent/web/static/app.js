@@ -104,7 +104,7 @@ function renderCandidates() {
   if (filtered.length === 0) {
     const tr = document.createElement("tr");
     tr.className = "empty-row";
-    tr.innerHTML = `<td colspan="8">Žádní kandidáti pro aktuální filtry.</td>`;
+    tr.innerHTML = `<td colspan="9">Žádní kandidáti pro aktuální filtry.</td>`;
     tbody.appendChild(tr);
     renderTuneControls();
     return;
@@ -116,6 +116,7 @@ function renderCandidates() {
     row.className = "candidate-row" + (isSelected ? " selected" : "");
     const country = c.country || (c.dxcc && c.dxcc.name) || "?";
     const dxcc = c.dxcc && c.dxcc.continent ? `${country} (${c.dxcc.continent})` : country;
+    const locator = c.locator || "?";
     const bearing = c.bearing_deg != null ? `${c.bearing_deg}° / ${c.distance_km ?? "?"} km` : "-";
     const sources = c.confirming_sources.join(", ");
     const scoreTotal = c.score ? c.score.total : 0;
@@ -123,6 +124,7 @@ function renderCandidates() {
     row.innerHTML = `
       <td>${c.callsign}</td>
       <td>${dxcc}</td>
+      <td>${locator}</td>
       <td>${c.freq_mhz.toFixed(3)} MHz</td>
       <td>${MODE_LABELS[c.mode] ?? c.mode}</td>
       <td>${fmtAge(c.age_seconds)}</td>
@@ -140,7 +142,7 @@ function renderCandidates() {
           .join("")
       : "";
     const reasonsDisplay = isSelected ? "block" : "none";
-    reasonsRow.innerHTML = `<td colspan="8"><ul class="reasons-list" style="display:${reasonsDisplay}">${reasons}</ul></td>`;
+    reasonsRow.innerHTML = `<td colspan="9"><ul class="reasons-list" style="display:${reasonsDisplay}">${reasons}</ul></td>`;
     tbody.appendChild(reasonsRow);
 
     row.addEventListener("click", () => selectCandidate(c));
