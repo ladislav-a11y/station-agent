@@ -12,6 +12,31 @@ import math
 EARTH_RADIUS_KM = 6371.0088
 
 
+def validate_latlon(
+    latitude: float, longitude: float, *, label: str = "Souřadnice"
+) -> tuple[float, float]:
+    """Vrátí konečné souřadnice v platném geografickém rozsahu.
+
+    Chybějící souřadnice reprezentuje volající hodnotou ``None``. Pokud už
+    dvojice existuje, její nečíselnost, nekonečno či překročení rozsahu je
+    chyba dat a nesmí se tiše zaměnit za neznámou polohu.
+    """
+    if isinstance(latitude, bool) or isinstance(longitude, bool):
+        raise ValueError(f"{label} musí být číselné latitude/longitude")
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} musí být číselné latitude/longitude") from exc
+    if not math.isfinite(lat) or not math.isfinite(lon):
+        raise ValueError(f"{label} musí být konečné")
+    if not -90.0 <= lat <= 90.0:
+        raise ValueError(f"{label}: latitude {lat!r} je mimo rozsah -90 až 90")
+    if not -180.0 <= lon <= 180.0:
+        raise ValueError(f"{label}: longitude {lon!r} je mimo rozsah -180 až 180")
+    return lat, lon
+
+
 def maidenhead_to_latlon(locator: str) -> tuple[float, float]:
     """Převede Maidenhead locator (4, 6, 8 nebo 10 znaků) na (lat, lon) ve stupních.
 
@@ -30,10 +55,17 @@ def maidenhead_to_latlon(locator: str) -> tuple[float, float]:
 
     Vrací souřadnice středu příslušného pole/čtverce/podčtverce.
     """
+    if not isinstance(locator, str):
+        raise ValueError(f"Maidenhead locator musí být text, ne {locator!r}")
     loc = locator.strip().upper()
     if len(loc) not in (4, 6, 8, 10):
         raise ValueError(f"Neplatná délka Maidenhead locatoru: {locator!r}")
-    if not (loc[0].isalpha() and loc[1].isalpha() and loc[2].isdigit() and loc[3].isdigit()):
+    if not (
+        "A" <= loc[0] <= "R"
+        and "A" <= loc[1] <= "R"
+        and "0" <= loc[2] <= "9"
+        and "0" <= loc[3] <= "9"
+    ):
         raise ValueError(f"Neplatný formát Maidenhead locatoru: {locator!r}")
 
     lon = (ord(loc[0]) - ord("A")) * 20.0 - 180.0 + int(loc[2]) * 2.0
@@ -51,10 +83,10 @@ def maidenhead_to_latlon(locator: str) -> tuple[float, float]:
     pos = 4
     while pos < len(loc):
         a, b = loc[pos], loc[pos + 1]
-        if a.isalpha() and b.isalpha():
+        if "A" <= a <= "X" and "A" <= b <= "X":
             divisions = 24.0
             idx_lon, idx_lat = ord(a) - ord("A"), ord(b) - ord("A")
-        elif a.isdigit() and b.isdigit():
+        elif "0" <= a <= "9" and "0" <= b <= "9":
             divisions = 10.0
             idx_lon, idx_lat = int(a), int(b)
         else:
@@ -68,7 +100,7 @@ def maidenhead_to_latlon(locator: str) -> tuple[float, float]:
     lon += lon_size / 2.0
     lat += lat_size / 2.0
 
-    return lat, lon
+    return validate_latlon(lat, lon, label=f"Maidenhead locator {locator!r}")
 
 
 def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -93,6 +125,10 @@ def bearing_and_distance(
     qth_lat: float, qth_lon: float, target_lat: float, target_lon: float
 ) -> tuple[float, float]:
     """Vrátí (bearing_deg, distance_km) z QTH na cíl."""
+    qth_lat, qth_lon = validate_latlon(qth_lat, qth_lon, label="Souřadnice QTH")
+    target_lat, target_lon = validate_latlon(
+        target_lat, target_lon, label="Souřadnice stanice"
+    )
     bearing = initial_bearing_deg(qth_lat, qth_lon, target_lat, target_lon)
     distance = haversine_distance_km(qth_lat, qth_lon, target_lat, target_lon)
     return bearing, distance

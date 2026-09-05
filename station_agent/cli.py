@@ -95,8 +95,10 @@ def build_app_state(config: AppConfig) -> AppState:
         try:
             qth_latlon = config.station.get_latlon()
         except ValueError as exc:
-            logger.warning("QTH není nakonfigurováno, bearing nebude dostupný: %s", exc)
+            logger.error("QTH má neplatné souřadnice, bearing nebude dostupný: %s", exc)
             qth_latlon = None
+        if qth_latlon is None:
+            logger.info("QTH souřadnice nejsou zadané, bearing nebude dostupný")
 
         dxcc_fallback = None
         if config.qrz.enabled:

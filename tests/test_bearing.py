@@ -5,6 +5,7 @@ from station_agent.bearing import (
     haversine_distance_km,
     initial_bearing_deg,
     maidenhead_to_latlon,
+    validate_latlon,
 )
 
 
@@ -28,6 +29,12 @@ class MaidenheadTests(unittest.TestCase):
             maidenhead_to_latlon("JN79FGX")  # lichý počet znaků
         with self.assertRaises(ValueError):
             maidenhead_to_latlon("JN79FG1X")  # 7.-8. znak musí být číslice
+        with self.assertRaises(ValueError):
+            maidenhead_to_latlon("ZN79FG")  # pole Maidenhead jsou jen A-R
+        with self.assertRaises(ValueError):
+            maidenhead_to_latlon("JN79YZ")  # subsquare jsou jen A-X
+        with self.assertRaises(ValueError):
+            maidenhead_to_latlon(1234)
 
     def test_eight_char_extended_locator(self):
         # Reálně vrací PSKReporter (senderLocator) -- viz LIVE_EVIDENCE.md.
@@ -67,6 +74,15 @@ class MaidenheadTests(unittest.TestCase):
 
 
 class BearingDistanceTests(unittest.TestCase):
+    def test_coordinate_validation_rejects_non_finite_and_out_of_range(self):
+        for coordinates in ((float("nan"), 14), (50, float("inf")), (91, 14), (50, -181)):
+            with self.subTest(coordinates=coordinates), self.assertRaises(ValueError):
+                validate_latlon(*coordinates)
+
+    def test_combined_calculation_rejects_invalid_endpoint(self):
+        with self.assertRaisesRegex(ValueError, "stanice"):
+            bearing_and_distance(50, 14, 91, 10)
+
     def test_bearing_due_east(self):
         bearing = initial_bearing_deg(0, 0, 0, 10)
         self.assertAlmostEqual(bearing, 90, delta=0.5)

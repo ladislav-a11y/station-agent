@@ -9,6 +9,7 @@ from station_agent.config import (
     NotificationsConfig,
     PollingConfig,
     QRZConfig,
+    StationConfig,
     WebConfig,
     _MiniYamlParser,
     config_from_dict,
@@ -77,6 +78,13 @@ class MiniYamlParserTests(unittest.TestCase):
 
 
 class LoadConfigTests(unittest.TestCase):
+    def test_station_coordinates_distinguish_unknown_from_invalid(self):
+        self.assertIsNone(StationConfig().get_latlon())
+        with self.assertRaisesRegex(ValueError, "uvedeny společně"):
+            StationConfig(latitude=50.0).get_latlon()
+        with self.assertRaisesRegex(ValueError, "mimo rozsah"):
+            StationConfig(latitude=95.0, longitude=14.0).get_latlon()
+
     def test_load_minimal_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.yaml"

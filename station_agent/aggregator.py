@@ -15,7 +15,7 @@ from typing import Callable
 
 from station_agent.adapters.base import SpotSource
 from station_agent.adapters.polling import DEFAULT_BACKOFF_MAX_SECONDS, PolledSource
-from station_agent.bearing import bearing_and_distance, maidenhead_to_latlon
+from station_agent.bearing import bearing_and_distance, maidenhead_to_latlon, validate_latlon
 from station_agent.config import ScoringConfig
 from station_agent.db import Database
 from station_agent.dxcc import callsign_to_dxcc
@@ -177,6 +177,12 @@ def attach_dxcc_and_bearing(
         ):
             continue
 
+        try:
+            valid_qth = validate_latlon(*qth_latlon, label="Souřadnice QTH")
+        except (TypeError, ValueError) as exc:
+            logger.error("Bearing pro %s nelze vypočítat: %s", candidate.callsign, exc)
+            continue
+
         target_latlon = None
         if candidate.locator:
             try:
@@ -190,10 +196,16 @@ def attach_dxcc_and_bearing(
                     exc,
                 )
         if target_latlon is None and entity is not None:
-            target_latlon = (entity.latitude, entity.longitude)
+            try:
+                target_latlon = validate_latlon(
+                    entity.latitude, entity.longitude,
+                    label=f"Souřadnice stanice {candidate.callsign}",
+                )
+            except ValueError as exc:
+                logger.error("Bearing pro %s nelze vypočítat: %s", candidate.callsign, exc)
         if target_latlon is not None:
             bearing, distance = bearing_and_distance(
-                qth_latlon[0], qth_latlon[1], target_latlon[0], target_latlon[1]
+                valid_qth[0], valid_qth[1], target_latlon[0], target_latlon[1]
             )
             if candidate.bearing_deg is None:
                 candidate.bearing_deg = bearing

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from station_agent.bearing import maidenhead_to_latlon
+from station_agent.bearing import maidenhead_to_latlon, validate_latlon
 from station_agent.modes import SUPPORTED_MODES
 from station_agent.bandplan import SUPPORTED_BANDS
 
@@ -186,15 +186,17 @@ class StationConfig:
     latitude: float | None = None
     longitude: float | None = None
 
-    def get_latlon(self) -> tuple[float, float]:
+    def get_latlon(self) -> tuple[float, float] | None:
         if self.qth_locator:
             return maidenhead_to_latlon(self.qth_locator)
-        if self.latitude is not None and self.longitude is not None:
-            return (self.latitude, self.longitude)
-        raise ValueError(
-            "QTH není nakonfigurováno -- vyplň station.qth_locator nebo "
-            "station.latitude/station.longitude v config.yaml"
-        )
+        if self.latitude is None and self.longitude is None:
+            return None
+        if self.latitude is None or self.longitude is None:
+            raise ValueError(
+                "Neplatná konfigurace QTH -- station.latitude a "
+                "station.longitude musí být uvedeny společně"
+            )
+        return validate_latlon(self.latitude, self.longitude, label="Souřadnice QTH")
 
 
 @dataclass

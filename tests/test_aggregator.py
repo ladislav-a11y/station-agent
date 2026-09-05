@@ -182,6 +182,17 @@ class DxccBearingTests(unittest.TestCase):
         attach_dxcc_and_bearing(candidates, qth_latlon=None)
         self.assertIsNone(candidates[0].bearing_deg)
 
+    def test_invalid_qth_is_reported_and_path_stays_unknown(self):
+        candidates = group_spots_into_candidates([
+            Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB",
+                 timestamp=time.time(), source="mock")
+        ])
+        with self.assertLogs("station_agent.aggregator", level="ERROR") as captured:
+            attach_dxcc_and_bearing(candidates, qth_latlon=(float("nan"), 14.0))
+        self.assertIsNone(candidates[0].bearing_deg)
+        self.assertIsNone(candidates[0].distance_km)
+        self.assertIn("nelze vypočítat", captured.output[0])
+
     def test_dxcc_fallback_used_when_prefix_table_misses(self):
         # 4L (Georgia) neni v PREFIX_TABLE (viz DIAGNOSIS_DXCC_PREFIX_GAP.md) --
         # obecny fallback (napr. QRZClient.lookup, viz adapters/qrz.py) musi
