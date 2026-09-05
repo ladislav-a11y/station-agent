@@ -161,6 +161,45 @@ class BandOpeningHttpRegressionTests(unittest.TestCase):
         events = self._get_notifications()
         self.assertEqual(len(events), 1, "reopen 1s po zavření musí být potlačen 30min cooldownem")
 
+    # -- 6. Skutečně souběžné otevření více pásem v JEDNOM cyklu ----------
+
+    def test_multiple_bands_opening_in_same_cycle_all_visible_via_http(self):
+        """Na rozdíl od výše uvedených testů (samostatné volání na pásmo,
+        rozestup v `now`) tento test simuluje reálný jediný polling cyklus,
+        kde se ve stejném okamžiku otevřou tři různá pásma najednou --
+        přesně scénář 'více současných band-opening událostí' z živého
+        provozu. Všechny tři musí projít přes skutečný HTTP server beze
+        ztráty, deduplikace nebo prořezání hodinovým stropem."""
+        self._set_notifications_config(max_per_hour=10)
+        same_moment = 5000.0
+        simultaneous_candidates = (
+            _candidates("20m", 14_195_000, 14_200_000, now=same_moment)
+            + _candidates("40m", 7_100_000, 7_150_000, now=same_moment)
+            + _candidates("15m", 21_200_000, 21_250_000, now=same_moment)
+        )
+        self.app_state._check_band_openings(simultaneous_candidates, now=same_moment)
+
+        events = self._get_notifications()
+        self.assertEqual(len(events), 3, "všechna tři současně otevřená pásma musí být viditelná")
+        self.assertEqual({e["band"] for e in events}, {"20m", "40m", "15m"})
+        for entry in events:
+            self.assertEqual(entry["ts"], same_moment)
+            for field_name in MANDATORY_FIELDS:
+                self.assertIn(field_name, entry)
+
+        # GUI konzumuje přesně tento endpoint -- ověř, že běžící server
+        # zároveň vydá i stránku a skript, které tato data vykreslují
+        # (viz app.js refreshNotifications: iteruje `data.band_openings`
+        # a vypisuje VŠECHNY položky, ne jen poslední).
+        with urllib.request.urlopen(f"{self.base_url}/", timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertIn("notifications", resp.read().decode("utf-8"))
+        with urllib.request.urlopen(f"{self.base_url}/app.js", timeout=5) as resp:
+            self.assertEqual(resp.status, 200)
+            script = resp.read().decode("utf-8")
+            self.assertIn("refreshNotifications", script)
+            self.assertIn("band_openings", script)
+
     def test_hourly_cap_limits_events_across_bands_via_http(self):
         self._set_notifications_config(cooldown_minutes=0.001, max_per_hour=2)
         bands = [
