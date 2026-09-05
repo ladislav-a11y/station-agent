@@ -320,13 +320,20 @@ function renderHoldCountdown() {
     el.textContent = "HOLD aktivní";
     return;
   }
-  if (!document.getElementById("at-enabled").checked || !autotuneCountdownBase) {
-    el.textContent = "";
+  if (!document.getElementById("at-enabled").checked) {
+    // Ani AUTO TUNE, ani HOLD nejsou zapnuté -- rocker switch samotný to
+    // nemusí být na první pohled zřejmé (žádný přepínač nemá "checked"),
+    // takže stav musí být vyjádřen i textem.
+    el.textContent = "AUTO TUNE vypnuto";
+    return;
+  }
+  if (!autotuneCountdownBase) {
+    el.textContent = "AUTO TUNE aktivní";
     return;
   }
   const elapsedSeconds = (Date.now() - autotuneCountdownBase.capturedAtMs) / 1000;
   const remaining = Math.max(0, autotuneCountdownBase.remainingSeconds - elapsedSeconds);
-  el.textContent = `Další AUTO TUNE za ${fmtAge(remaining)}`;
+  el.textContent = `AUTO TUNE aktivní -- další ladění za ${fmtAge(remaining)}`;
 }
 
 let statusLoaded = false;
