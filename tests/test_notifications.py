@@ -20,18 +20,21 @@ class BandOpeningTrackerTests(unittest.TestCase):
         events = tracker.check({"20m": 8}, now=1000.0)
         self.assertEqual(events, [])
 
-    def test_old_previous_event_does_not_suppress_new_opening(self):
+    def test_previous_event_marks_band_open_until_live_closure(self):
         tracker = BandOpeningTracker(make_cfg(), [{"band": "20m", "ts": 1.0}])
-        events = tracker.check({"20m": 8}, now=100_000.0)
-        self.assertEqual(len(events), 1)
+        continuously_open = tracker.check({"20m": 8}, now=100_000.0)
+        tracker.check({"20m": 2}, now=100_001.0)
+        reopened = tracker.check({"20m": 8}, now=100_002.0)
+        self.assertEqual(continuously_open, [])
+        self.assertEqual(len(reopened), 1)
 
-    def test_event_outside_cooldown_but_inside_hour_does_not_mark_band_open(self):
+    def test_restart_deduplicates_continuously_open_band_after_cooldown(self):
         tracker = BandOpeningTracker(
             make_cfg(cooldown_minutes=30.0, max_per_hour=10),
             [{"band": "20m", "ts": 1000.0}],
         )
         events = tracker.check({"20m": 8}, now=1000.0 + 50 * 60)
-        self.assertEqual(len(events), 1)
+        self.assertEqual(events, [])
 
     def test_no_event_below_threshold(self):
         tracker = BandOpeningTracker(make_cfg())

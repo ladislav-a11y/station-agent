@@ -57,6 +57,26 @@ class BandOpeningIntegrationTests(unittest.TestCase):
         app_state.aggregator.close()
         app_state.db.close()
 
+    def test_restart_preserves_transition_deduplication_after_cooldown(self):
+        cfg = NotificationsConfig(
+            enabled=True, min_distinct_stations=2,
+            cooldown_minutes=30.0, max_per_hour=10,
+        )
+        db = Database(":memory:")
+        db.log_band_opening("20m", 3, ts=1000.0)
+
+        app_state = build_app_state_with_db(db, cfg)
+        continuously_open = app_state.band_opening_tracker.check(
+            {"20m": 3}, now=3001.0
+        )
+        app_state.band_opening_tracker.check({"20m": 1}, now=3002.0)
+        reopened = app_state.band_opening_tracker.check({"20m": 3}, now=3003.0)
+
+        self.assertEqual(continuously_open, [])
+        self.assertEqual(len(reopened), 1)
+        app_state.aggregator.close()
+        app_state.db.close()
+
     def test_hourly_propagation_is_used_by_scoring_and_logged_in_full(self):
         """Regrese pro audit: snapshot nesmí jen existovat vedle scoringu.
 

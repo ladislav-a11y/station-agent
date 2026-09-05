@@ -28,10 +28,15 @@ class BandOpeningEvent:
     reason: str = ""
 
 
-def _event_band_and_ts(previous_event) -> tuple[str, float]:
+def _event_band_ts_and_count(previous_event) -> tuple[str, float, int | None]:
     if hasattr(previous_event, "keys"):
-        return previous_event["band"], previous_event["ts"]
-    return previous_event.band, previous_event.ts
+        count = previous_event["station_count"] if "station_count" in previous_event.keys() else None
+        return previous_event["band"], previous_event["ts"], count
+    return (
+        previous_event.band,
+        previous_event.ts,
+        getattr(previous_event, "station_count", None),
+    )
 
 
 class BandOpeningTracker:
@@ -40,9 +45,11 @@ class BandOpeningTracker:
     cyklu s aktuálním ``aggregator.band_activity(candidates)``.
 
     ``previous_events`` (dřívější notifikace, typicky obnovené z perzistentní
-    historie) se použijí k obnově cooldownu jednotlivých pásem a klouzavého
-    hodinového stropu, aby restart procesu neobešel ochranu proti záplavě
-    notifikací."""
+    historie) se použijí k obnově otevřeného stavu, cooldownu jednotlivých
+    pásem a klouzavého hodinového stropu, aby restart procesu neobešel
+    přechodovou deduplikaci ani ochranu proti záplavě notifikací. Pásmo se
+    po restartu považuje za otevřené až do prvního živě pozorovaného
+    uzavření."""
 
     def __init__(self, cfg: NotificationsConfig, previous_events=()):
         self.cfg = cfg
@@ -50,9 +57,13 @@ class BandOpeningTracker:
         self._last_fired: dict[str, float] = {}
         self._fired_ts: list[float] = []
         for previous_event in previous_events:
-            band, ts = _event_band_and_ts(previous_event)
+            band, ts, station_count = _event_band_ts_and_count(previous_event)
             self._last_fired[band] = max(self._last_fired.get(band, ts), ts)
             self._fired_ts.append(ts)
+            self._last_activity[band] = max(
+                self._last_activity.get(band, 0),
+                station_count or self.cfg.min_distinct_stations,
+            )
         # Historie všech notifikací vygenerovaných touto instancí -- GUI
         # (viz web/server.py) z ní zobrazuje všechny relevantní události,
         # ne jen tu poslední.
