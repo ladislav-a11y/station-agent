@@ -744,3 +744,30 @@
   `python -m pytest -q` -- **387 passed, 3 subtests passed**. Podle
   kontraktu jde o orientační běh agenta, závazné vyhodnocení provádí
   výhradně orchestrátor.
+
+## Konkrétní výstup auditu ai-orchestratoru -- iterace 1/10 -- 05.09.2026
+
+* Zadání (samostatný rozsah): "Vygenerovat konkrétní výstup auditu
+  ai-orchestratoru dokumentující proběhlé ověření. Zachovat chování mimo
+  tento rozsah."
+* Dva dosud dokončené kusy práce (Log4OM2 zapojení do běžícího agenta a
+  rozšíření band-opening regresních testů o souběžný scénář, viz sekce
+  výše) neměly vlastní evidenční audit dokument v duchu existujícího
+  precedentu (`AUDIT_ITERATION_5.md`, `AUDIT_EVIDENCE_P5.md`) -- poslední
+  `AUDIT_ITERATION_5.md` je starší a nepokrývá ani jednu z nich.
+* Nový `AUDIT_ITERATION_6.md`: read-only ověření aktuálního HEAD
+  (`926a615`, `git status --porcelain` čistý) -- potvrzuje existenci a
+  konzistenci Log4OM2 zapojení (`app_state.py`/`cli.py`/`web/server.py`)
+  i rozšířených band-opening regresních testů (7 testů ve třídě
+  `BandOpeningHttpRegressionTests`) se stavem popsaným v tomto souboru,
+  `ast.parse` syntaktickou kontrolu dotčených souborů a statické ověření
+  bezpečnostních invariantů z `AGENTS.md` (žádné PTT, uzavřené rig API,
+  loopback-only web, mock default, žádná Log4OM auto-save funkce).
+  Dokument je výslovně evidence, ne verdikt -- `accepted`/`rejected` a
+  spuštění kompletní testovací sady zůstává výhradně na ai-orchestrátoru,
+  přesně podle runtime contractu ("Independent audit execution is
+  ai-orchestrator-only").
+* Žádná změna produkčního kódu v `station_agent/` ani existujících testů
+  -- tato iterace pouze perzistuje nový evidenční dokument a tento
+  záznam. Výsledek testů z minulé iterace nebyl k dispozici; spuštění
+  provádí výhradně orchestrátor.
