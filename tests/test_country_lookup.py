@@ -28,6 +28,21 @@ class CountryLookupTests(unittest.TestCase):
         lookup._initialization_attempted = True
         self.assertEqual(lookup.lookup("JA1XYZ").name, "Japan")
 
+    def test_unavailable_optional_backend_resolves_special_prefix_blocks(self):
+        lookup = CountryLookup()
+        lookup._initialization_attempted = True
+        expected = {
+            "EG8PDA": ("Canary Islands", "EA8"),
+            "P3X": ("Cyprus", "5B"),
+            "TM30KAV": ("France", "F"),
+            "UT0UG": ("Ukraine", "UR"),
+        }
+        for callsign, identity in expected.items():
+            with self.subTest(callsign=callsign):
+                entity = lookup.lookup(callsign)
+                self.assertIsNotNone(entity)
+                self.assertEqual((entity.name, entity.prefix), identity)
+
     def test_failure_uses_network_fallback_after_builtin_miss(self):
         expected = DXCCEntity("Georgia", "4L", "AS", 42, 43.5, 21)
         calls = []

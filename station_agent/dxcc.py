@@ -121,6 +121,23 @@ PREFIX_TABLE: dict[str, DXCCEntity] = {
     "UN": DXCCEntity("Kazakhstan", "UN", "AS", 51.1694, 71.4491, 17),
 }
 
+# Prefixové bloky pro běžné speciální/contestové značky.  Nejde o odhad ze
+# jména stanice: bloky jsou přidělené jednotlivým DXCC entitám a procházejí
+# stejným longest-prefix-match jako základní tabulka. Delší regionální prefix
+# (např. EG8) musí mít přednost před obecným španělským blokem EG.
+_PREFIX_ALIASES: dict[tuple[str, ...], DXCCEntity] = {
+    ("AM8", "AN8", "AO8", "ED8", "EE8", "EF8", "EG8", "EH8"):
+        DXCCEntity("Canary Islands", "EA8", "AF", 28.2916, -16.6291, 33),
+    ("AM", "AN", "AO", "ED", "EE", "EF", "EG", "EH"):
+        DXCCEntity("Spain", "EA", "EU", 40.4168, -3.7038, 14),
+    ("P3",): DXCCEntity("Cyprus", "5B", "AS", 35.1856, 33.3823, 20),
+    ("TM",): DXCCEntity("France", "F", "EU", 48.8566, 2.3522, 14),
+    ("EM", "EN", "EO", "US", "UT", "UU", "UV", "UW", "UX", "UY", "UZ"):
+        DXCCEntity("Ukraine", "UR", "EU", 50.4501, 30.5234, 16),
+}
+for _aliases, _entity in _PREFIX_ALIASES.items():
+    PREFIX_TABLE.update(dict.fromkeys(_aliases, _entity))
+
 
 def _base_call(callsign: str) -> str:
     """Vybere ze složeného callsignu (OK1ABC/P, W1AW/OK1) základní část.
