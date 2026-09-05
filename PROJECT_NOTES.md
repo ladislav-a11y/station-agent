@@ -694,3 +694,53 @@
   `tests/test_cli_sources.py`: **69 passed**. Podle kontraktu jde o
   orientační běh agenta, ne o závazné vyhodnocení -- to zůstává výhradně
   na orchestrátorovi.
+
+## Cílené regresní testy pro zobrazování band-opening událostí -- iterace 1/10 -- 05.09.2026
+
+* Zadání (samostatný rozsah): "Vytvořit cílené regresní testy pro obnovené
+  zobrazování všech band-opening událostí, jejich povinná pole, propagation
+  vysvětlení, stav neověřeno a zachované limity. Zachovat chování mimo tento
+  rozsah."
+* Existující pokrytí (`tests/test_notifications.py` na úrovni
+  `BandOpeningTracker` samotného, `tests/test_app_state.py` na úrovni
+  `AppState._check_band_openings`, `tests/test_web_api.py` s dílčími
+  `/api/notifications` testy) už scénáře částečně pokrývalo, ale žádný
+  jediný test neověřoval celý řetězec -- skutečný běžící HTTP server ->
+  `GET /api/notifications` -- pro všech pět bodů zadání současně, a stav
+  "neověřeno" nebyl nikdy ověřen se skutečnou `PropagationService`
+  (existující test `test_status_marks_failed_propagation_source_as_unverified`
+  míří jen na `/api/status`, ne na `reason` band-opening události).
+* Nový soubor `tests/test_band_opening_regression.py` (izolovaný `AppState`
+  + reálný `ThreadingHTTPServer` na loopback per test, aby si cooldown/
+  hodinový strop/historie událostí testy vzájemně neovlivňovaly):
+  - `test_all_logged_band_openings_are_displayed_not_only_latest` --
+    tři různá pásma otevřená v různých cyklech, `/api/notifications`
+    musí vrátit všechny tři (nejnovější první, `web/server.py`
+    `reversed(events)`), ne jen poslední.
+  - `test_band_opening_event_has_all_mandatory_fields_with_correct_types`
+    -- `ts`/`band`/`station_count`/`station_count_change`/`threshold`/
+    `reason` musí být přítomné se správným typem a `reason` neprázdné.
+  - `test_band_opening_reason_carries_propagation_explanation_via_http`
+    -- fixture `PropagationContext` (Kp/SFI/QTH/kvalita pásma/zdroj)
+    se musí objevit v `reason` vráceném přes skutečný HTTP endpoint.
+  - `test_band_opening_reason_reports_unverified_propagation_source_via_http`
+    -- skutečná `PropagationService` se selhávajícím fetcherem (ne ručně
+    sestavená fixture) reprodukuje reálný "neověřený" stav
+    (`verified=False`, `context=None`); `reason` musí obsahovat
+    "propagation data nejsou dostupná" i po průchodu HTTP vrstvou.
+  - `test_cooldown_suppresses_reopen_notification_via_http` a
+    `test_hourly_cap_limits_events_across_bands_via_http` -- cooldown na
+    pásmo a globální hodinový strop musí zůstat vynucené i při čtení přes
+    `/api/notifications`, ne jen uvnitř trackeru.
+* Žádná změna produkčního kódu v `station_agent/` -- všech 6 nových testů
+  prošlo beze změny existující implementace (`notifications.py`,
+  `app_state.py`, `web/server.py`), protože zadané chování už bylo funkčně
+  hotové z dřívějška; šlo čistě o doplnění chybějícího end-to-end
+  regresního pokrytí. Mimo rozsah beze změny: žádný adaptér, scoring, rig
+  ani jiný testovací soubor nebyl dotčen.
+* Testy spuštěny přímo v tomto běhu (výjimečně nebyly systémem oprávnění
+  zamítnuté): cílený soubor `python -m pytest -q
+  tests/test_band_opening_regression.py` -- **6 passed**; celá sada
+  `python -m pytest -q` -- **387 passed, 3 subtests passed**. Podle
+  kontraktu jde o orientační běh agenta, závazné vyhodnocení provádí
+  výhradně orchestrátor.
