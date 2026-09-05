@@ -422,10 +422,11 @@ async function refreshNotifications() {
       el.textContent = "Žádné notifikace.";
       return;
     }
-    const event = data.band_openings[0];
-    const item = document.createElement("div");
-    item.textContent = `${formatTimestamp(event.ts)} -- ${event.band}: ${event.reason || `nárůst o ${event.station_count_change} na ${event.station_count} odlišných stanic`}`;
-    el.appendChild(item);
+    for (const event of data.band_openings) {
+      const item = document.createElement("div");
+      item.textContent = `${formatTimestamp(event.ts)} -- ${event.band}: ${event.reason || `nárůst o ${event.station_count_change} na ${event.station_count} odlišných stanic`}`;
+      el.appendChild(item);
+    }
   } catch (err) { console.error("refreshNotifications selhalo", err); }
 }
 

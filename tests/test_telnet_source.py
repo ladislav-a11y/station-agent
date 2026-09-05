@@ -94,6 +94,16 @@ class _FakeTelnetServer:
                 # stále pozoruje skutečné ukončení streamu a otestuje tutéž
                 # reconnect/error větev jako při běžném FIN od serveru.
                 conn.shutdown(socket.SHUT_WR)
+                # Na Windows samotný half-close nestačí, pokud server hned
+                # poté zavře socket: close může klientovi doručit WSAECONNABORTED
+                # dřív než předchozí data. Počkáme proto, až klient převezme
+                # data + EOF a zavře svou stranu spojení. ``recv`` tehdy vrátí
+                # b""; timeout zůstává jen bezpečnostní pojistkou testu.
+                try:
+                    while conn.recv(4096):
+                        pass
+                except (OSError, socket.timeout):
+                    pass
             except OSError:
                 pass
             conn.close()

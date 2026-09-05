@@ -241,6 +241,12 @@ class WebApiTests(unittest.TestCase):
         self.assertIn("ts", entry)
         self.assertEqual(data["band_openings"][1]["band"], event.band)
 
+    def test_gui_renders_every_logged_band_opening(self):
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn("for (const event of data.band_openings)", script)
+        self.assertNotIn("data.band_openings[0]", script)
+
     def test_qso_history_requires_explicit_post_and_preserves_bearing(self):
         self.app_state.refresh_candidates()
         candidate = self.app_state.latest_candidates[0]
