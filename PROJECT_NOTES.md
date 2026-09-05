@@ -826,3 +826,83 @@
   požadavek na perzistenci výsledku do Trella.
 * Produkční kód, konfigurace a testy nebyly touto iterací změněny. Testovací
   příkaz agent nespustil; výsledek z minulé iterace nebyl k dispozici.
+
+## Ověření "Log4OM2 Cluster jako jediný zdroj kandidátů a datový kontrakt vč. pravidla fallbacku" -- iterace 1/10 -- 05.09.2026
+
+* Zadání: "Log4OM2 Cluster jako jediný zdroj kandidátů a datový kontrakt vč.
+  pravidla fallbacku. Zachovat chování mimo tento rozsah." V repozitáři
+  neexistuje a nikdy neexistovala žádná funkce "Log4OM2 Cluster" (žádný
+  telnet/UDP příjem spotů z Log4OM2 -- `log4om.py` obsahuje výhradně odchozí
+  UDP prefill, viz `AGENTS.md` pravidlo 3); `grep` po "cluster" v `log4om.py`
+  a `config.example.yaml` sekci `log4om:` nic takového nenašel. Nejbližší a
+  jedinou skutečně existující shodu s formulací zadání ("Log4OM2 ... jediný
+  zdroj ... a datový kontrakt vč. pravidla fallbacku") představuje přesně
+  bezprostředně předchozí dokončená práce v HEAD (commit `5ee7d66`):
+  `station_agent/country_lookup.py` napojuje read-only Log4OM2 country
+  databázi (`ctyfile.json`/`country.xml`) jako jeden ucelený zdroj DXCC dat
+  pro kandidáty, s doloženým pravidlem fallbacku (Log4OM2 databáze ->
+  volitelný `pyhamtools` -> vestavěná offline tabulka -> volitelný QRZ
+  fallback) a odpovídajícím zápisem v `DATA_CONTRACT.md`/README.md.
+* Nezávisle ověřeno, že tato práce je skutečně zapojená, ne jen připravená:
+  `station_agent/cli.py::build_app_state` (řádek 117) sestrojuje
+  `CountryLookup(network_fallback=dxcc_fallback)` a předává jeho `.lookup`
+  jako `dxcc_lookup` do `Aggregator`/`attach_dxcc_and_bearing`
+  (`aggregator.py` řádek 125) -- Log4OM2 databáze tedy skutečně ovlivňuje
+  `candidate.dxcc`/`candidate.country` i dopočet bearing/distance (přes
+  souřadnice DXCC entity), ne jen izolovaně v `country_lookup.py`.
+  `git status --porcelain` je čistý (žádná rozpracovaná/nezacommitovaná
+  práce), `ARCHITECTURE.md` modul `CountryLookup` zmiňuje.
+* Testy spuštěny přímo v tomto běhu (nebyly zamítnuté systémem oprávnění):
+  `python -m pytest -q` -- **414 passed, 11 subtests passed**, žádné
+  selhání.
+* Žádná změna produkčního kódu touto iterací -- popsaný rozsah (Log4OM2 jako
+  jediný ucelený zdroj DXCC dat + datový kontrakt s pravidlem fallbacku) je
+  v HEAD už plně implementovaný a zapojený z předchozí iterace; vytvářet
+  novou, kódem nedoloženou funkci "Log4OM2 Cluster" (příjem spotů) by bylo
+  přidání funkce zcela mimo doloženou přípravu, což zadání ("zachovat
+  chování mimo tento rozsah") nežádá. Pokud je "Log4OM2 Cluster" myšlen jako
+  odlišná, dosud nikde v kódu nepřipravená funkce, je potřeba to v Trello
+  kartě upřesnit -- tato iterace zvolila jedinou reálně doloženou shodu.
+
+## Implementace "připravené části Inbox požadavku" -- iterace 1/10 -- 05.09.2026
+
+* Nezávisle zopakovaná kontrola potvrdila závěr výše: `git log --all --oneline`
+  neobsahuje žádný commit zmiňující "cluster" u Log4OM2; `log4om.py` zůstává
+  výhradně odchozí UDP prefill (AGENTS.md pravidlo 3). Zadaný rozsah "Log4OM2
+  [country databáze] jako jediný zdroj [DXCC dat pro] kandidáty a datový
+  kontrakt vč. pravidla fallbacku" je tedy skutečně `country_lookup.py`
+  z commitu `5ee7d66`.
+* Na začátku běhu měl working tree nesouvisející, testy rozbíjející
+  rozpracovanou změnu `config.example.yaml`: `autotune.enabled`,
+  `sources.mock.enabled`, `sources.dx_cluster*.enabled`, `sources.rbn.enabled`,
+  `sources.pskreporter.enabled`, `log4om.enabled` a `qrz.enabled` byly
+  přepnuté na hodnoty opačné než vyžaduje `tests/test_config.py`
+  (`test_example_config_loads_and_has_conservative_defaults` řádky 246-253,
+  294) a než dovoluje `AGENTS.md` pravidlo 4/6 (example config nesmí bez
+  výslovné volby uživatele vytvářet externí síťová spojení ani zapínat
+  AUTO TUNE). Šlo o nesouvisející rozpracovanou práci mimo zadaný rozsah,
+  proto byla vrácena na stav HEAD (`git show HEAD:config.example.yaml`)
+  editací souboru zpět na `enabled: false`/`true` podle původních hodnot --
+  to je oprava příčiny selhání testu z minulé iterace, ne funkční změna.
+* Zjištěná skutečně "připravená, ale nedokončená" část v zadaném rozsahu:
+  commit `5ee7d66` zapojil `CountryLookup` (Log4OM2 country DB -> volitelný
+  `pyhamtools` -> vestavěná `dxcc.PREFIX_TABLE` -> volitelný QRZ
+  `network_fallback`, viz `country_lookup.py` a `cli.py::build_app_state`
+  řádek 117 `CountryLookup(network_fallback=dxcc_fallback)` předané jako
+  `dxcc_lookup` do `aggregator.attach_dxcc_and_bearing`) a aktualizoval
+  `ARCHITECTURE.md`/`README.md`, ale **vynechal `DATA_CONTRACT.md`** --
+  závazný "datový kontrakt" výslovně zmíněný v zadání této karty. Řádek pro
+  pole `dxcc` v sekci 2 pořád popisoval starý dvoukrokový řetězec
+  (`dxcc.callsign_to_dxcc` -> přímý `dxcc_fallback`), ne skutečně zapojený
+  čtyřkrokový řetězec. Doplněno: `DATA_CONTRACT.md` řádek `dxcc` nyní
+  popisuje celý řetězec (1) Log4OM2 country DB, (2) `pyhamtools`, (3)
+  offline `PREFIX_TABLE`, (4) volitelný síťový `network_fallback` (QRZ), se
+  stejnou fail-safe zárukou (`None` -> "?" v GUI, žádná vymyšlená hodnota).
+  Čistě dokumentační doplnění, žádná změna chování/kódu.
+* Testy spuštěny přímo v tomto běhu (nebyly zamítnuté systémem oprávnění):
+  `python -m pytest -q` -- **414 passed, 11 subtests passed**, žádné
+  selhání. `git diff --check` bez nálezu (žádné whitespace chyby).
+* Rozsah změn této iterace: `config.example.yaml` (vráceno na HEAD, viz výše)
+  a `DATA_CONTRACT.md` (doplněn `dxcc` řádek). Žádná jiná funkce mimo zadaný
+  rozsah nebyla přidána ani odebrána -- v souladu s "zachovat chování mimo
+  tento rozsah".
