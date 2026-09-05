@@ -135,7 +135,11 @@ class WebApiTests(unittest.TestCase):
         self.assertIn("candidates", data)
         self.assertGreater(len(data["candidates"]), 0)
         first = data["candidates"][0]
-        for key in ("callsign", "freq_hz", "mode", "band", "age_seconds", "confirming_sources", "score"):
+        for key in (
+            "callsign", "freq_hz", "mode", "band", "country", "locator",
+            "dxcc", "bearing_deg", "distance_km", "age_seconds",
+            "confirming_sources", "score",
+        ):
             self.assertIn(key, first)
         self.assertIn("reasons", first["score"])
 
