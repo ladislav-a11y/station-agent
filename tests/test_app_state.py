@@ -9,12 +9,13 @@ import unittest
 
 from station_agent.adapters.mock import MockAdapter
 from station_agent.aggregator import Aggregator
-from station_agent.app_state import AppState
+from station_agent.app_state import AppState, PollingLoop
 from station_agent.config import AppConfig, NotificationsConfig
 from station_agent.db import Database
 from station_agent.models import Candidate, RigState, ScoreResult
 from station_agent.propagation import PropagationContext
 from station_agent.rig.mock_rig import MockRig
+from station_agent.rig.rigctld import RigctldError
 
 
 def build_app_state(notifications_cfg: NotificationsConfig | None = None) -> AppState:
@@ -295,6 +296,66 @@ class CurrentStationScoreFreshnessTests(unittest.TestCase):
         self.assertNotEqual(app_state.current_rig_state.score, 1)
         app_state.aggregator.close()
         app_state.db.close()
+
+
+class PollingLoopRigctldConnectionErrorTests(unittest.TestCase):
+    """Regrese pro ConnectionResetError WinError 10054 při autotune volání
+    rigctld: polling smyčka musí přerušené spojení k rigu rozlišit od
+    ostatních neočekávaných chyb aplikace (RigctldClient._command ho
+    signalizuje jako RigctldError, viz rig/rigctld.py) a zvládnout ho bez
+    pádu vlákna, jen stručným varováním -- příští cyklus se sám znovu
+    připojí, není proto potřeba celý traceback jako u skutečné chyby."""
+
+    def _run_single_iteration(self, app_state) -> None:
+        loop = PollingLoop(app_state, interval_seconds=0)
+
+        def stop_after_first_wait(timeout=None):
+            loop._stop_event.set()
+            return True
+
+        loop._stop_event.wait = stop_after_first_wait
+        loop._run()
+
+    def test_rigctld_connection_error_is_logged_as_warning_and_loop_survives(self):
+        calls: list[int] = []
+
+        class FailingAppState:
+            def refresh_candidates(self, now=None):
+                pass
+
+            def run_autotune_cycle(self, now=None):
+                calls.append(1)
+                raise RigctldError(
+                    "spojení s rigctld (127.0.0.1:4532) bylo přerušeno: "
+                    "[WinError 10054] Vzdálený hostitel násilně přerušil "
+                    "existující připojení"
+                )
+
+        with self.assertLogs("station_agent.app_state", level="WARNING") as captured:
+            self._run_single_iteration(FailingAppState())
+
+        self.assertEqual(calls, [1], "cyklus musí proběhnout přesně jednou a chybu nesmí polknout dřív")
+        self.assertEqual(len(captured.records), 1)
+        self.assertEqual(captured.records[0].levelname, "WARNING")
+        self.assertIn("rigctld", captured.output[0])
+
+    def test_unrelated_exception_still_logged_with_full_traceback(self):
+        """Rozlišení musí platit oběma směry: nesouvisející chyba (mimo rozsah
+        tohoto ticketu) musí dál procházet přes logger.exception() beze
+        změny chování."""
+
+        class OtherlyFailingAppState:
+            def refresh_candidates(self, now=None):
+                pass
+
+            def run_autotune_cycle(self, now=None):
+                raise RuntimeError("neočekávaná chyba mimo rigctld spojení")
+
+        with self.assertLogs("station_agent.app_state", level="ERROR") as captured:
+            self._run_single_iteration(OtherlyFailingAppState())
+
+        self.assertEqual(captured.records[0].levelname, "ERROR")
+        self.assertIsNotNone(captured.records[0].exc_info)
 
 
 if __name__ == "__main__":

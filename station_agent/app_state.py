@@ -17,6 +17,7 @@ from station_agent.models import Candidate, RigState
 from station_agent.notifications import BandOpeningTracker
 from station_agent.propagation import PropagationService
 from station_agent.rig.base import RigControl
+from station_agent.rig.rigctld import RigctldError
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,17 @@ class PollingLoop:
             try:
                 self.app_state.refresh_candidates()
                 self.app_state.run_autotune_cycle()
+            except RigctldError as exc:
+                # Přerušené TCP spojení k rigctld (např. ConnectionResetError
+                # WinError 10054, když OS/rigctld mezitím zavře socket) je
+                # očekávaná, přechodná situace -- RigctldClient._command už
+                # při ní zahodil mrtvý socket, takže příští cyklus si sám
+                # znovu naváže spojení (viz rig/rigctld.py). Nejde tedy
+                # o neočekávanou chybu aplikace: stačí stručné varování bez
+                # celého tracebacku, aby to nezahlcovalo log stejně jako
+                # ostatní benigní odpojení (viz web/server.py
+                # _is_benign_disconnect).
+                logger.warning("Spojení s rigctld přerušeno, zkusím znovu příští cyklus: %s", exc)
             except Exception:
                 logger.exception("Chyba v polling smyčce")
             self._stop_event.wait(self.interval_seconds)

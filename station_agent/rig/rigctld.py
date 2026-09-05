@@ -71,18 +71,33 @@ class RigctldClient(RigControl):
 
     def _command(self, cmd: str, expected_lines: int) -> list[str]:
         sock = self._ensure_connected()
-        sock.sendall((cmd.strip() + "\n").encode("ascii"))
-        buf = b""
-        lines: list[str] = []
-        while len(lines) < expected_lines:
-            chunk = sock.recv(4096)
-            if not chunk:
-                break
-            buf += chunk
-            while b"\n" in buf:
-                line, buf = buf.split(b"\n", 1)
-                lines.append(line.decode("ascii", errors="replace").strip())
-        return lines
+        try:
+            sock.sendall((cmd.strip() + "\n").encode("ascii"))
+            buf = b""
+            lines: list[str] = []
+            while len(lines) < expected_lines:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    lines.append(line.decode("ascii", errors="replace").strip())
+            return lines
+        except OSError as exc:
+            # Přerušené spojení (např. ConnectionResetError WinError 10054,
+            # pokud rigctld/OS mezitím zavře TCP socket) nechává self._sock
+            # nastavený na už mrtvý objekt -- bez zahození by ho
+            # _ensure_connected při dalším volání pořád považoval za platný
+            # a každý další polling cyklus by selhával na stejném socketu
+            # navždy místo reconnectu. Zahodit ho zde je jediné místo, kde
+            # to jde bezpečně udělat, protože jen tady víme, že selhal
+            # konkrétní send/recv na něm.
+            self.close()
+            raise RigctldError(
+                f"spojení s rigctld ({self.host}:{self.port}) bylo přerušeno "
+                f"během příkazu {cmd.strip()!r}: {exc}"
+            ) from exc
 
     # -- veřejné rozhraní ----------------------------------------------------
 

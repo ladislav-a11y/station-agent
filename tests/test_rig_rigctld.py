@@ -115,6 +115,25 @@ class RigctldClientTests(unittest.TestCase):
         with self.assertRaises(RigctldError):
             self.client.set_frequency(1_000_000)
 
+    def test_broken_connection_drops_dead_socket_and_reconnects_next_call(self):
+        """Regrese pro ConnectionResetError WinError 10054 při autotune volání:
+        pokud OS/rigctld mezitím zavře TCP socket (typicky ConnectionResetError
+        na Windows, ale obecně jakýkoli OSError na sendall/recv), RigctldClient
+        musí mrtvý socket zahodit -- jinak by ho _ensure_connected dál
+        považoval za platný a KAŽDÝ další polling cyklus by selhával na
+        stejném mrtvém socketu navždy, místo aby se transparentně obnovil
+        reconnectem na dalším příkazu."""
+        self.client.get_frequency()  # naváže spojení
+        self.assertIsNotNone(self.client._sock)
+        self.client._sock.close()  # simuluje přerušené spojení zvenčí (RST/reset)
+
+        with self.assertRaises(RigctldError):
+            self.client.get_frequency()
+        self.assertIsNone(self.client._sock, "mrtvý socket musí být zahozen, ne opakovaně používán")
+
+        # Další volání musí transparentně znovu navázat spojení a uspět.
+        self.assertEqual(self.client.get_frequency(), self.server.freq)
+
     def test_no_ptt_capable_methods_exist(self):
         public_methods = {name for name in dir(self.client) if not name.startswith("_")}
         self.assertTrue(all("ptt" not in name.lower() for name in public_methods))
