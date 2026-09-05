@@ -48,6 +48,7 @@ class BandOpeningTrackerTests(unittest.TestCase):
         self.assertEqual(events[0].band, "20m")
         self.assertEqual(events[0].station_count, 6)
         self.assertEqual(events[0].station_count_change, 6)
+        self.assertEqual(events[0].threshold, 5)
 
     def test_deduplicated_while_continuously_open(self):
         """DoD: dokud pásmo zůstává otevřené, žádná další notifikace."""

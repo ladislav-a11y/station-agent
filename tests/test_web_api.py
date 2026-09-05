@@ -238,6 +238,7 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(entry["band"], second.band)
         self.assertEqual(entry["station_count"], second.station_count)
         self.assertEqual(entry["station_count_change"], 4)
+        self.assertEqual(entry["threshold"], 2)
         self.assertIn("ts", entry)
         self.assertEqual(data["band_openings"][1]["band"], event.band)
 
@@ -246,6 +247,11 @@ class WebApiTests(unittest.TestCase):
         script = javascript.decode("utf-8")
         self.assertIn("for (const event of data.band_openings)", script)
         self.assertNotIn("data.band_openings[0]", script)
+        for required_field in (
+            "event.band", "event.ts", "event.station_count",
+            "event.station_count_change", "event.threshold",
+        ):
+            self.assertIn(required_field, script)
 
     def test_qso_history_requires_explicit_post_and_preserves_bearing(self):
         self.app_state.refresh_candidates()

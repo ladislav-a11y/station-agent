@@ -24,6 +24,7 @@ class BandOpeningEvent:
     band: str
     station_count: int
     station_count_change: int
+    threshold: int
     ts: float
     reason: str = ""
 
@@ -96,7 +97,11 @@ class BandOpeningTracker:
 
             change = count - previous_count
             event = BandOpeningEvent(
-                band=band, station_count=count, station_count_change=change, ts=now,
+                band=band,
+                station_count=count,
+                station_count_change=change,
+                threshold=self.cfg.min_distinct_stations,
+                ts=now,
                 reason=(
                     f"aktivita na pásmu {band} vzrostla o {change} na {count} "
                     f"odlišných stanic (práh {self.cfg.min_distinct_stations})"

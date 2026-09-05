@@ -232,6 +232,7 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
                                 "ts": event.ts, "band": event.band,
                                 "station_count": event.station_count,
                                 "station_count_change": event.station_count_change,
+                                "threshold": event.threshold,
                                 "reason": event.reason,
                             }
                             for event in reversed(events)
