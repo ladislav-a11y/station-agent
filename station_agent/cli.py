@@ -16,6 +16,7 @@ from station_agent.aggregator import Aggregator
 from station_agent.app_state import AppState, PollingLoop
 from station_agent.bandplan import SUPPORTED_BANDS
 from station_agent.config import AppConfig, load_config
+from station_agent.country_lookup import CountryLookup
 from station_agent.db import Database
 from station_agent.log4om import Log4OMBridge
 from station_agent.modes import SUPPORTED_MODES
@@ -110,6 +111,7 @@ def build_app_state(config: AppConfig) -> AppState:
                 cache_ttl_seconds=config.qrz.cache_ttl_seconds,
             ).lookup
 
+        country_lookup = CountryLookup(network_fallback=dxcc_fallback)
         aggregator = Aggregator(
             build_sources(config),
             db,
@@ -117,7 +119,7 @@ def build_app_state(config: AppConfig) -> AppState:
             qth_latlon=qth_latlon,
             source_poll_interval_seconds=config.polling.source_interval_seconds,
             source_backoff_max_seconds=config.polling.source_backoff_max_seconds,
-            dxcc_fallback=dxcc_fallback,
+            dxcc_lookup=country_lookup.lookup,
         )
     except TypeError as exc:
         # sources.*.options je volný dict (SourceConfig.options), na rozdíl

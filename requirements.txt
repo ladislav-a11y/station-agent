@@ -5,3 +5,4 @@
 # PyYAML>=6.0      # plnohodnotný YAML parser pro config.yaml (jinak se použije
 #                  # vestavěný minimální parser ve station_agent/config.py)
 # pytest>=7.0      # alternativní test runner k `python -m unittest`
+# pyhamtools>=0.11 # úplná radioamatérská country-file prefixová databáze

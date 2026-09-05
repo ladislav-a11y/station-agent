@@ -214,6 +214,13 @@ bezpečnostní invarianty, které se nesmí porušit).
 
 ### DXCC/země fallback přes QRZ.com
 
+Pro úplné prefixové určení lze nainstalovat volitelný extra balíček
+`pip install .[countryfile]`. Station Agent pak jako primární zdroj používá
+radioamatérskou country-file databázi z `pyhamtools`. Pokud knihovna nebo její
+data nejsou dostupné, automaticky a bez pádu použije vestavěnou offline tabulku
+a poté případný explicitně zapnutý QRZ fallback. Bez ověřeného výsledku ponechá
+zemi neznámou; žádný prefix ani přihlašovací údaj není odhadován či vestavěn.
+
 `station_agent/dxcc.py::PREFIX_TABLE` je záměrně neúplná offline tabulka
 (viz `DIAGNOSIS_DXCC_PREFIX_GAP.md`) -- pro callsign, jehož žádný prefix v
 tabulce není (např. `4L5O`, prefixový blok Georgie), `callsign_to_dxcc()`
