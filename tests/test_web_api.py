@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 import unittest
 from unittest import mock
 import urllib.error
@@ -95,6 +96,19 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('document.getElementById("at-enabled").addEventListener("change"', script)
         self.assertIn("clearCandidateSelection();", script)
         self.assertIn("updateAutotune();", script)
+
+    def test_gui_shows_distinct_text_for_each_autotune_hold_visibility_state(self):
+        """Viditelnost stavu v GUI: rocker přepínač sám o sobě nerozliší
+        "obojí vypnuto" od chybějícího "checked" atributu, takže
+        renderHoldCountdown (viz app.js) musí pro každý ze tří vzájemně
+        výlučných stavů (HOLD aktivní / AUTO TUNE aktivní / obojí vypnuté)
+        vypsat textem odlišitelný stav."""
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn("function renderHoldCountdown()", script)
+        self.assertIn('el.textContent = "HOLD aktivní"', script)
+        self.assertIn('el.textContent = "AUTO TUNE vypnuto"', script)
+        self.assertIn('el.textContent = "AUTO TUNE aktivní"', script)
 
     def test_candidates_endpoint_returns_scored_candidates(self):
         status, content_type, body = self._get("/api/candidates")
@@ -295,6 +309,36 @@ class WebApiTests(unittest.TestCase):
         data = json.loads(body)
         self.assertIsNone(data["autotune"]["autotune_remaining_seconds"])
         self.assertIsNone(data["autotune"]["hold_remaining_seconds"])
+
+    def test_explicit_hold_via_api_without_manual_tune_never_auto_resumes_autotune(self):
+        """HOLD zapnutý explicitně přes POST /api/autotune (bez ručního
+        NALADIT) nesmí AUTO TUNE nikdy sám znovu aktivovat -- ani po
+        dlouhé době, ani když by min_hold_seconds/min_score_delta jinak
+        přeladění dovolily. Pokrývá jinou cestu než ruční NALADIT (viz
+        tests/test_manual_tune.py), konkrétně explicitní zapnutí HOLD
+        operátorem přes formulář/GUI bez výběru kandidáta."""
+        self.app_state.refresh_candidates()
+        self.app_state.config.autotune.min_hold_seconds = 10.0
+        self.app_state.config.autotune.min_score_delta = 0
+        self.app_state.autotune_engine.min_score = 0
+
+        status, data = self._post_json("/api/autotune", {"enabled": False, "hold": True})
+        self.assertEqual(status, 200)
+        self.assertFalse(data["autotune"]["enabled"])
+        self.assertTrue(data["autotune"]["hold"])
+
+        base_now = time.time()
+        for elapsed in (0.0, 60.0, 3600.0, 86_400.0):
+            decision = self.app_state.run_autotune_cycle(now=base_now + elapsed)
+            self.assertEqual(decision.action, "NONE")
+            self.assertEqual(decision.reason, "AUTO TUNE je vypnuté")
+            self.assertFalse(self.app_state.config.autotune.enabled)
+            self.assertTrue(self.app_state.config.autotune.hold)
+
+        _, _, body = self._get("/api/status")
+        refreshed = json.loads(body)
+        self.assertFalse(refreshed["autotune"]["enabled"])
+        self.assertTrue(refreshed["autotune"]["hold"])
 
     def test_unknown_path_is_404(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
