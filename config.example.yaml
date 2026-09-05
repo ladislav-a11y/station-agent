@@ -203,7 +203,8 @@ presets:
 notifications:
   # Band-opening notifikace -- lokálně odvozené z počtu odlišných stanic
   # aktuálně viditelných na stejném pásmu (stejný signál jako scoring.py
-  # propagation faktor), žádné externí solar/K-index API se nevolá.
+  # propagation faktor). Jejich důvod využije sdílený propagation snapshot
+  # z povolených NOAA URL výše; notifikační část sama síť nevolá.
   enabled: true
   # Kolik odlišných stanic na pásmu už považujeme za "otevřené pásmo".
   min_distinct_stations: 5

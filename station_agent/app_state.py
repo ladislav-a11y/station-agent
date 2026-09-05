@@ -136,14 +136,34 @@ class AppState:
         activity = band_activity(candidates)
         events = self.band_opening_tracker.check(activity, now=now)
         propagation = self.propagation.context if self.propagation else None
-        weather = (
-            f"aktuální Kp {propagation.kp:.1f}"
-            if propagation is not None and propagation.kp is not None
-            else "space-weather data nejsou dostupná"
-        )
         for event in events:
-            reason = f"{event.reason}; {weather}"
-            self.db.log_band_opening(event.band, event.station_count, event.ts, reason)
+            if propagation is None:
+                propagation_reason = "propagation data nejsou dostupná"
+            else:
+                details: list[str] = []
+                if propagation.kp is not None:
+                    details.append(f"Kp {propagation.kp:.1f}")
+                if propagation.solar_flux is not None:
+                    details.append(f"SFI {propagation.solar_flux:.1f}")
+                details.append(
+                    f"QTH {propagation.qth_locator.upper()}"
+                    if propagation.qth_locator
+                    else "QTH neznámé"
+                )
+                quality = propagation.band_quality.get(event.band)
+                if quality is not None:
+                    details.append(f"kvalita pásma {quality * 100:.0f} %")
+                age_minutes = max(0.0, now - propagation.observed_at) / 60
+                details.append(f"stáří dat {age_minutes:.0f} min")
+                if propagation.source:
+                    details.append(f"zdroj {propagation.source}")
+                propagation_reason = ", ".join(details) or "propagation data nejsou dostupná"
+
+            # Tentýž úplný důvod používá živé API/GUI i perzistentní historie.
+            event.reason = f"{event.reason}; {propagation_reason}"
+            self.db.log_band_opening(
+                event.band, event.station_count, event.ts, event.reason
+            )
 
     def run_autotune_cycle(self, now: float | None = None) -> TuneDecision:
         now = time.time() if now is None else now

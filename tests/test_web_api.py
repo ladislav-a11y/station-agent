@@ -249,7 +249,7 @@ class WebApiTests(unittest.TestCase):
         self.assertNotIn("data.band_openings[0]", script)
         for required_field in (
             "event.band", "event.ts", "event.station_count",
-            "event.station_count_change", "event.threshold",
+            "event.station_count_change", "event.threshold", "event.reason",
         ):
             self.assertIn(required_field, script)
 

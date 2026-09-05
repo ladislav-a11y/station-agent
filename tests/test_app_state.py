@@ -137,6 +137,82 @@ class BandOpeningIntegrationTests(unittest.TestCase):
         app_state.aggregator.close()
         app_state.db.close()
 
+    def test_band_opening_reason_contains_available_propagation_evidence(self):
+        app_state = build_app_state(
+            NotificationsConfig(
+                enabled=True, min_distinct_stations=2,
+                cooldown_minutes=30.0, max_per_hour=10,
+            )
+        )
+        context = PropagationContext(
+            kp=2.0,
+            solar_flux=150.0,
+            observed_at=1000.0,
+            source="NOAA fixture",
+            qth_locator="JN79FG",
+            band_quality={"20m": 0.82},
+        )
+
+        class FixturePropagationService:
+            @property
+            def context(self):
+                return context
+
+        app_state.propagation = FixturePropagationService()
+        app_state._check_band_openings(
+            [
+                Candidate(
+                    callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", band="20m",
+                    first_seen=1000.0, last_seen=1000.0, spotters={"A"},
+                ),
+                Candidate(
+                    callsign="W1AW", freq_hz=14_200_000, mode="SSB", band="20m",
+                    first_seen=1000.0, last_seen=1000.0, spotters={"B"},
+                ),
+            ],
+            now=1000.0,
+        )
+
+        event = app_state.band_opening_tracker.events[0]
+        self.assertIn("Kp 2.0", event.reason)
+        self.assertIn("SFI 150.0", event.reason)
+        self.assertIn("QTH JN79FG", event.reason)
+        self.assertIn("kvalita pásma 82 %", event.reason)
+        self.assertIn("stáří dat 0 min", event.reason)
+        self.assertIn("zdroj NOAA fixture", event.reason)
+        self.assertEqual(app_state.db.recent_band_openings()[0]["reason"], event.reason)
+        app_state.aggregator.close()
+        app_state.db.close()
+
+    def test_band_opening_reason_explains_missing_propagation_data(self):
+        app_state = build_app_state(
+            NotificationsConfig(
+                enabled=True, min_distinct_stations=2,
+                cooldown_minutes=30.0, max_per_hour=10,
+            )
+        )
+        app_state.propagation = None
+        app_state._check_band_openings(
+            [
+                Candidate(
+                    callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", band="20m",
+                    first_seen=1000.0, last_seen=1000.0, spotters={"A"},
+                ),
+                Candidate(
+                    callsign="W1AW", freq_hz=14_200_000, mode="SSB", band="20m",
+                    first_seen=1000.0, last_seen=1000.0, spotters={"B"},
+                ),
+            ],
+            now=1000.0,
+        )
+
+        self.assertIn(
+            "propagation data nejsou dostupná",
+            app_state.band_opening_tracker.events[0].reason,
+        )
+        app_state.aggregator.close()
+        app_state.db.close()
+
     def test_refresh_candidates_does_not_duplicate_on_next_cycle(self):
         app_state = build_app_state(
             NotificationsConfig(enabled=True, min_distinct_stations=2, cooldown_minutes=30.0, max_per_hour=10)

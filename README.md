@@ -298,8 +298,10 @@ nepotvrzuje ani neukládá záznam v Log4OM2.
 Band-opening notifikace vznikají při překročení konfigurovaného počtu
 odlišných stanic na pásmu. V jednom cyklu mohou vzniknout události pro všechna
 nově otevřená pásma; opakované otevření stejného pásma respektuje cooldown a
-celkový počet událostí klouzavý hodinový limit. Historie QSO je viditelná
-přímo v GUI.
+celkový počet událostí klouzavý hodinový limit. Důvod u každé notifikace
+uvádí pozorovanou aktivitu a, pokud je propagation snapshot dostupný, také
+Kp, SFI, QTH, odhad kvality daného pásma, stáří dat a jejich zdroj. Historie
+QSO je viditelná přímo v GUI.
 
 ## Propagation a debug skóre
 

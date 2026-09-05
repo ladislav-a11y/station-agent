@@ -424,7 +424,7 @@ async function refreshNotifications() {
     }
     for (const event of data.band_openings) {
       const item = document.createElement("div");
-      item.textContent = `Pásmo: ${event.band} | Čas: ${formatTimestamp(event.ts)} | Odlišné stanice: ${event.station_count} | Změna: ${event.station_count_change >= 0 ? "+" : ""}${event.station_count_change} | Použitý práh: ${event.threshold}`;
+      item.textContent = `Pásmo: ${event.band} | Čas: ${formatTimestamp(event.ts)} | Odlišné stanice: ${event.station_count} | Změna: ${event.station_count_change >= 0 ? "+" : ""}${event.station_count_change} | Použitý práh: ${event.threshold} | Důvod: ${event.reason}`;
       el.appendChild(item);
     }
   } catch (err) { console.error("refreshNotifications selhalo", err); }
