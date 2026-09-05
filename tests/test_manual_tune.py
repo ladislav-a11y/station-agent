@@ -96,11 +96,13 @@ class ManualTuneAppStateTests(unittest.TestCase):
         decision = self.app_state.run_autotune_cycle()
         self.assertNotEqual(decision.action, "ERROR")
 
-    def test_manual_tune_then_hold_expiry_autoresumes_autotune_without_manual_action(self):
-        """Diagnostikovaný bug "autotune se nespustí i po vypršení doby
-        držení": po ručním NALADIT (HOLD zapnuté, AUTO TUNE vypnuté) musí
-        AUTO TUNE po uplynutí min_hold_seconds naskočit samo -- operátor ho
-        nesmí muset ručně zapínat v GUI."""
+    def test_manual_tune_then_hold_never_auto_resumes_autotune_without_operator_action(self):
+        """Regrese pro opravený bug "Station Agent se po ručním naladění
+        nebo po zapnutí HOLD časem sám vrátí do AUTO TUNE": po ručním
+        NALADIT (HOLD zapnuté, AUTO TUNE vypnuté) musí HOLD zůstat aktivní
+        i dlouho po uplynutí min_hold_seconds -- polling cyklus (viz
+        PollingLoop) ho nesmí sám uvolnit, operátor ho musí uvolnit
+        výslovně (POST /api/autotune)."""
         candidates = self.app_state.refresh_candidates()
         target = candidates[0]
         self.app_state.autotune_engine.cfg.min_hold_seconds = 5.0
@@ -110,12 +112,11 @@ class ManualTuneAppStateTests(unittest.TestCase):
         self.assertTrue(self.app_state.autotune_engine.cfg.hold)
 
         tuned_at = self.app_state.current_rig_state.tuned_at
-        decision = self.app_state.run_autotune_cycle(now=tuned_at + 10.0)
+        decision = self.app_state.run_autotune_cycle(now=tuned_at + 3600.0)
 
-        self.assertTrue(self.app_state.autotune_engine.cfg.enabled)
-        self.assertFalse(self.app_state.autotune_engine.cfg.hold)
-        self.assertNotEqual(decision.reason, "AUTO TUNE je vypnuté")
-        self.assertNotIn("HOLD režim je aktivní", decision.reason)
+        self.assertFalse(self.app_state.autotune_engine.cfg.enabled)
+        self.assertTrue(self.app_state.autotune_engine.cfg.hold)
+        self.assertEqual(decision.reason, "AUTO TUNE je vypnuté")
 
     def test_manual_tune_does_not_toggle_autotune_when_candidate_rejected(self):
         self.app_state.refresh_candidates()

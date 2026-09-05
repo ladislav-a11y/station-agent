@@ -36,10 +36,10 @@ class AutoTuneEngineTests(unittest.TestCase):
         self.assertIn("HOLD", decision.reason)
 
     def test_hold_blocks_until_min_hold_seconds_elapses_since_current_tuned_at(self):
-        """Diagnostikovaný bug: po ručním NALADIT (které nastaví HOLD a
-        vypne AUTO TUNE, viz app_state.manual_tune) AUTO TUNE nikdy
-        nenaskočí zpátky samo, dokud HOLD explicitně nevyprší podle
-        ``min_hold_seconds`` od posledního naladění."""
+        """Po ručním NALADIT (které nastaví HOLD a vypne AUTO TUNE, viz
+        app_state.manual_tune) AUTO TUNE nikdy nenaskočí zpátky samo --
+        HOLD zůstává aktivní bez ohledu na ``min_hold_seconds``, dokud ho
+        operátor výslovně neuvolní."""
         cfg = AutoTuneConfig(enabled=False, hold=True, min_hold_seconds=120, min_score_delta=0)
         engine = AutoTuneEngine(cfg, min_score=50)
         now = time.time()
@@ -51,26 +51,27 @@ class AutoTuneEngineTests(unittest.TestCase):
         self.assertTrue(cfg.hold)
         self.assertFalse(cfg.enabled)
 
-    def test_hold_auto_expires_after_min_hold_seconds_and_autotune_resumes(self):
-        """Jakmile od posledního naladění uplyne min_hold_seconds, HOLD se
-        sám vypne, AUTO TUNE se sám zapne a rozhodnutí pokračuje normálním
-        vyhodnocením kandidátů (tady TUNE na lepšího kandidáta)."""
-        cfg = AutoTuneConfig(enabled=False, hold=True, min_hold_seconds=120, min_score_delta=0)
+    def test_hold_does_not_auto_expire_after_min_hold_seconds(self):
+        """Regrese pro opravený bug: Station Agent se po ručním naladění
+        nebo po zapnutí HOLD časem sám nevrací do AUTO TUNE. I dlouho po
+        uplynutí ``min_hold_seconds`` od posledního naladění zůstávají HOLD
+        aktivní a AUTO TUNE vypnuté, dokud je operátor výslovně nezmění."""
+        cfg = AutoTuneConfig(enabled=True, hold=True, min_hold_seconds=120, min_score_delta=0)
         engine = AutoTuneEngine(cfg, min_score=50)
         now = time.time()
-        current = RigState(freq_hz=14_195_000, mode="SSB", tuned_at=now - 120, callsign="W1AW", score=60)
+        current = RigState(freq_hz=14_195_000, mode="SSB", tuned_at=now - 3600, callsign="W1AW", score=60)
 
         decision = engine.decide([make_candidate("OK1ABC", 95)], current=current, now=now)
 
-        self.assertEqual(decision.action, "TUNE")
-        self.assertEqual(decision.candidate.callsign, "OK1ABC")
-        self.assertFalse(cfg.hold)
+        self.assertEqual(decision.action, "NONE")
+        self.assertIn("HOLD", decision.reason)
+        self.assertTrue(cfg.hold)
         self.assertTrue(cfg.enabled)
 
-    def test_hold_expiry_ignored_when_no_current_station(self):
-        """Bez current (rig ještě na nic naladěný) nelze uplynulou dobu
-        držení spočítat -- HOLD zůstává aktivní, dokud se rig na něco
-        nenaladí."""
+    def test_hold_without_current_station_never_auto_enables_autotune(self):
+        """Bez current (rig ještě na nic naladěný) HOLD zůstává aktivní a
+        AUTO TUNE vypnuté -- žádný automatický mechanismus je nesmí
+        přepnout."""
         cfg = AutoTuneConfig(enabled=False, hold=True, min_hold_seconds=120)
         engine = AutoTuneEngine(cfg, min_score=50)
         decision = engine.decide([make_candidate("OK1ABC", 95)], current=None)
