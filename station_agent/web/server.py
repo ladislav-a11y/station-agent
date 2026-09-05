@@ -66,6 +66,14 @@ def _build_status(app_state: AppState) -> dict:
     cfg = app_state.config
     with app_state.lock:
         propagation = app_state.propagation.context if app_state.propagation else None
+        propagation_verified = bool(
+            propagation is not None
+            and getattr(app_state.propagation, "verified", True)
+        )
+        propagation_error = (
+            getattr(app_state.propagation, "last_error", None)
+            if app_state.propagation else None
+        )
         return {
             "rig": rig_state_to_dict(app_state.current_rig_state),
             "autotune": {
@@ -82,6 +90,9 @@ def _build_status(app_state: AppState) -> dict:
             "modes": cfg.modes,
             "rig_mode": cfg.rig.mode,
             "propagation": {
+                "verified": propagation_verified,
+                "status": "verified" if propagation_verified else "unverified",
+                "error": propagation_error,
                 "kp": propagation.kp if propagation else None,
                 "solar_flux": propagation.solar_flux if propagation else None,
                 "observed_at": propagation.observed_at if propagation else None,

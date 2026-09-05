@@ -204,7 +204,10 @@ class WebApiTests(unittest.TestCase):
         self.app_state.propagation = FixturePropagationService()
         status, _, body = self._get("/api/status")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["propagation"]["kp"], 4.0)
+        propagation = json.loads(body)["propagation"]
+        self.assertEqual(propagation["kp"], 4.0)
+        self.assertTrue(propagation["verified"])
+        self.assertEqual(propagation["status"], "verified")
 
         _, _, html = self._get("/")
         page = html.decode("utf-8")
@@ -217,6 +220,23 @@ class WebApiTests(unittest.TestCase):
         self.assertIn("`Kp: ${p.kp.toFixed(1)}", script)
         self.assertIn("p.solar_flux.toFixed(1)", script)
         self.assertIn("Object.entries(p.band_quality || {})", script)
+
+    def test_status_marks_failed_propagation_source_as_unverified(self):
+        class FailedPropagationService:
+            context = None
+            verified = False
+            last_error = "OSError: offline"
+
+        self.app_state.propagation = FailedPropagationService()
+        status, _, body = self._get("/api/status")
+        self.assertEqual(status, 200)
+        propagation = json.loads(body)["propagation"]
+        self.assertFalse(propagation["verified"])
+        self.assertEqual(propagation["status"], "unverified")
+        self.assertEqual(propagation["error"], "OSError: offline")
+        self.assertIsNone(propagation["kp"])
+        self.assertIsNone(propagation["solar_flux"])
+        self.assertEqual(propagation["band_quality"], {})
 
     def test_notifications_endpoint_reports_logged_band_openings(self):
         self.app_state.band_opening_tracker = BandOpeningTracker(

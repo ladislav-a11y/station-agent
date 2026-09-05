@@ -146,6 +146,7 @@ class PropagationService:
         self.sfi_url = sfi_url
         self._context: PropagationContext | None = None
         self._last_attempt_at: float | None = None
+        self._last_error: str | None = None
         self._lock = threading.Lock()
 
     def refresh_if_due(self, now: float | None = None) -> PropagationContext | None:
@@ -157,11 +158,27 @@ class PropagationService:
             try:
                 self._context = self.fetcher(kp_url=self.kp_url, sfi_url=self.sfi_url,
                                              qth_locator=self.qth_locator, now=now)
-            except Exception:
-                logger.exception("Propagation data refresh failed; retaining prior evidence")
+                self._last_error = None
+            except Exception as exc:
+                # Starší snapshot po neúspěšném refreshi nesmí dál působit jako
+                # aktuálně ověřený vstup modelu. Hodnoty proto zahodíme místo
+                # jejich tichého použití a důvod uchováme pouze jako stav zdroje.
+                self._context = None
+                self._last_error = f"{type(exc).__name__}: {exc}"
+                logger.exception("Propagation data refresh failed; marking source unverified")
             return self._context
 
     @property
     def context(self) -> PropagationContext | None:
         with self._lock:
             return self._context
+
+    @property
+    def verified(self) -> bool:
+        with self._lock:
+            return self._context is not None and self._last_error is None
+
+    @property
+    def last_error(self) -> str | None:
+        with self._lock:
+            return self._last_error

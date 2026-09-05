@@ -223,15 +223,17 @@ function renderRigStatus(status) {
 function renderPropagation(status) {
   const el = document.getElementById("propagation-status");
   const p = status.propagation || {};
-  el.textContent = p.kp == null ? "Kp: nedostupné" : `Kp: ${p.kp.toFixed(1)} (${p.source || "zdroj"})`;
+  el.textContent = !p.verified || p.kp == null
+    ? "Kp: neověřeno"
+    : `Kp: ${p.kp.toFixed(1)} (${p.source || "zdroj"})`;
 
   const summary = document.getElementById("propagation-summary");
   const bands = document.getElementById("propagation-bands");
   const detail = document.getElementById("propagation-detail");
-  if (p.kp == null || p.solar_flux == null) {
-    summary.textContent = "Aktuální Kp a SFI nejsou dostupné; scoring používá pozorovanou aktivitu spotů.";
+  if (!p.verified || p.kp == null || p.solar_flux == null) {
+    summary.textContent = "Propagační data nejsou ověřena; model se nepoužívá.";
     bands.replaceChildren();
-    detail.textContent = "";
+    detail.textContent = p.error ? `Zdroj selhal: ${p.error}` : "Zdroj není dostupný.";
     return;
   }
 

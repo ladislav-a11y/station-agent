@@ -57,7 +57,7 @@ obsahuje **přesně jeden `ScoreReason` na každý klíč** v
 | `needed_dxcc` | `db.is_worked(dxcc.name)` | neznámá DXCC entita -> považuje se za potřebnou (raději upozornit) |
 | `signal` | `best_snr_db` | chybí -> neutrálních 50 % váhy |
 | `reliability` | počet `spotters` | žádný spotter -> neutrálních 50 % váhy |
-| `propagation` | hodinový `PropagationContext.band_quality` připravený z aktuálního NOAA Kp/SFI, QTH lokátoru a lokálního slunečního času; scoring sám síť nikdy nevolá. Při nedostupném snapshotu slouží jako fallback `aggregator.band_activity` | chybí snapshot i `band_activity` -> neutrálních 50 % váhy |
+| `propagation` | hodinový `PropagationContext.band_quality` připravený z aktuálního NOAA Kp/SFI, QTH lokátoru a lokálního slunečního času; scoring sám síť nikdy nevolá. Po chybě zdroje se starý snapshot zahodí a stav API je `verified=false`, aby se žádná hodnota nevydávala za ověřenou. Při nedostupném snapshotu slouží jako fallback `aggregator.band_activity` | chybí snapshot i `band_activity` -> neutrálních 50 % váhy |
 | `path_dx` | `candidate.distance_km` | chybí (QTH nenakonfigurováno) -> neutrálních 50 % váhy |
 
 Chybějící evidence tedy nikdy nepenalizuje kandidáta pod neutrální

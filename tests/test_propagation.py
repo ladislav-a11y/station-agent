@@ -56,6 +56,30 @@ class PropagationTests(unittest.TestCase):
         self.assertIsNone(service.refresh_if_due(1_700_000_000.0))
         self.assertIsNone(service.refresh_if_due(1_700_000_005.0))
         self.assertEqual(len(calls), 1)
+        self.assertFalse(service.verified)
+        self.assertIn("offline", service.last_error)
+
+    def test_failed_refresh_discards_old_snapshot_and_marks_source_unverified(self):
+        calls = 0
+
+        def fetcher(**kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("offline")
+            quality, detail = calculate_band_quality(2.0, 150.0, "JN79FG", kwargs["now"])
+            return PropagationContext(
+                2.0, 150.0, kwargs["now"], "fixture", "JN79FG", quality, detail,
+            )
+
+        service = PropagationService("JN79FG", refresh_seconds=3600, fetcher=fetcher)
+        self.assertIsNotNone(service.refresh_if_due(1_700_000_000.0))
+        self.assertTrue(service.verified)
+
+        self.assertIsNone(service.refresh_if_due(1_700_003_600.0))
+        self.assertIsNone(service.context)
+        self.assertFalse(service.verified)
+        self.assertIn("offline", service.last_error)
 
     def test_higher_kp_reduces_all_band_quality(self):
         quiet, _ = calculate_band_quality(1.0, 150.0, "JN79FG", 1_700_000_000.0)
