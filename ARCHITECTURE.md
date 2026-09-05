@@ -10,7 +10,8 @@ station_agent/
 ├── config.py         # načtení + validace config.yaml -> dataclasses
 ├── models.py          # Spot, Candidate, ScoreResult, RigState, ...
 ├── db.py               # SQLite: spoty, worked-log cache, historie ladění
-├── dxcc.py              # callsign -> DXCC entita (prefix tabulka, souřadnice)
+├── dxcc.py              # vestavěná bezpečná fallback prefix tabulka
+├── country_lookup.py    # Log4OM2 country data + další DXCC fallbacky
 ├── bearing.py            # Maidenhead <-> lat/lon, great-circle bearing/distance
 ├── scoring.py             # transparentní scoring 0-100 s rozpisem důvodů
 ├── aggregator.py           # slučuje spoty z adaptérů do kandidátů
@@ -43,10 +44,9 @@ Adaptéry (DX Cluster / RBN / PSKReporter / Mock)
    Aggregator  ── seskupí spoty stejné stanice/pásma do jednoho Candidate
         │           a sesbírá potvrzující zdroje (confirming_sources)
         ▼
-     DXCC lookup (dxcc.py) ── doplní zemi/kontinent/souřadnice entity
-        │       (offline PREFIX_TABLE; když selže, volitelný síťový
-        │        fallback adapters/qrz.py -- viz README "DXCC/země
-        │        fallback přes QRZ.com")
+     DXCC lookup (country_lookup.py) ── doplní zemi/kontinent/souřadnice entity
+        │       (read-only Log4OM2 country data; fallback pyhamtools,
+        │        offline PREFIX_TABLE, then optional adapters/qrz.py)
         ▼
      Bearing (bearing.py) ── spočítá směr a vzdálenost z QTH
         ▼

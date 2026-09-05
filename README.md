@@ -228,15 +228,18 @@ bezpečnostní invarianty, které se nesmí porušit).
 | PSKReporter | ✅ parser XML reportu otestovaný na fixture datech | ✅ **živě funkční** — `fetch()` reálně provádí HTTP GET na `query_url` (výchozí `retrieve.pskreporter.info/query`) a parsuje odpověď; síťová vrstva je otestovaná proti skutečnému lokálnímu HTTP serveru v `tests/test_adapters_live.py` |
 | QRZ.com XML lookup (DXCC/země fallback) | ✅ parser session/lookup XML otestovaný na fixture datech (`tests/test_qrz_parsing.py`) | ✅ **živě funkční** HTTP klient (`station_agent/adapters/qrz.py`, síťová vrstva otestovaná proti lokálnímu HTTP serveru v `tests/test_qrz_live.py`); vyžaduje vlastní `qrz.username`/`qrz.password` (QRZ.com XML Subscription), defaultně `qrz.enabled: false` |
 | Log4OM2 UDP prefill | ✅ sestavení payloadu otestované | ⏳ **pending verifikace** — odeslání UDP paketu je implementované, ale nebylo ověřeno proti běžící instanci Log4OM2 |
+| Log4OM2 country databáze (DXCC/země/souřadnice) | ✅ read-only JSON/XML resolver s longest-prefix-match | ✅ **automaticky používaná**, pokud je v profilu Log4OM2 dostupný `ctyfile.json`; při nedostupnosti následují pyhamtools, offline tabulka a volitelný QRZ fallback |
 
 ### DXCC/země fallback přes QRZ.com
 
-Pro úplné prefixové určení lze nainstalovat volitelný extra balíček
-`pip install .[countryfile]`. Station Agent pak jako primární zdroj používá
-radioamatérskou country-file databázi z `pyhamtools`. Pokud knihovna nebo její
-data nejsou dostupné, automaticky a bez pádu použije vestavěnou offline tabulku
-a poté případný explicitně zapnutý QRZ fallback. Bez ověřeného výsledku ponechá
-zemi neznámou; žádný prefix ani přihlašovací údaj není odhadován či vestavěn.
+Pro úplné prefixové určení Station Agent nejdříve automaticky hledá aktuální
+read-only country databázi Log4OM2 (`%APPDATA%\Log4OM2\ctyfile.json` a související
+`country.xml`). Ta obsahuje stovky DXCC entit a úplné prefixové přiřazení včetně
+regionálních souřadnic. Lze použít i jinou cestu přes proměnnou prostředí
+`LOG4OM2_CTYFILE`. Pokud databáze není dostupná, následuje volitelný
+`pyhamtools`, vestavěná offline tabulka a nakonec explicitně zapnutý QRZ
+fallback. Bez ověřeného výsledku zůstane země neznámá; žádný prefix ani
+přihlašovací údaj se neodhadují či nevkládají.
 
 `station_agent/dxcc.py::PREFIX_TABLE` je záměrně neúplná offline tabulka
 (viz `DIAGNOSIS_DXCC_PREFIX_GAP.md`) -- pro callsign, jehož žádný prefix v

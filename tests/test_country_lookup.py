@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from station_agent.country_lookup import CountryLookup
 from station_agent.models import DXCCEntity
@@ -15,6 +18,35 @@ class _Callinfo:
 
 
 class CountryLookupTests(unittest.TestCase):
+    def test_log4om_country_file_resolves_full_prefix_and_coordinates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ctyfile = root / "ctyfile.json"
+            ctyfile.write_text(
+                json.dumps([{
+                    "Dxcc": 75,
+                    "CQZone": 21,
+                    "Coordinates": {"Latitude": 42.0, "Longitude": 45.0},
+                    "Continent": "AS",
+                    "Prefixes": [{
+                        "Callsign": "4L",
+                        "ExactMatch": False,
+                        "Coordinates": {"Latitude": 0.0, "Longitude": 0.0},
+                    }],
+                }]),
+                encoding="utf-8-sig",
+            )
+            (root / "country.xml").write_text(
+                "<CountryList><Country><Dxcc>75</Dxcc>"
+                "<CountryName>Georgia</CountryName></Country></CountryList>",
+                encoding="utf-8",
+            )
+            lookup = CountryLookup(country_file_path=ctyfile)
+            entity = lookup.lookup("4L5O")
+            self.assertIsNotNone(entity)
+            self.assertEqual((entity.name, entity.prefix, entity.continent), ("Georgia", "4L", "AS"))
+            self.assertEqual((entity.latitude, entity.longitude), (42.0, 45.0))
+
     def test_country_file_result_has_priority(self):
         lookup = CountryLookup()
         lookup._initialization_attempted = True
