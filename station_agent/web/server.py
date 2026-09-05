@@ -224,17 +224,18 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
                 )
             elif path == "/api/notifications":
                 with app_state.lock:
-                    event = app_state.band_opening_tracker.best_event
+                    events = list(app_state.band_opening_tracker.events)
                 self._send_json(
                     {
-                        "band_openings": ([
+                        "band_openings": [
                             {
                                 "ts": event.ts, "band": event.band,
                                 "station_count": event.station_count,
                                 "station_count_change": event.station_count_change,
                                 "reason": event.reason,
                             }
-                        ] if event is not None else [])
+                            for event in reversed(events)
+                        ]
                     }
                 )
             elif path == "/api/qso/history":

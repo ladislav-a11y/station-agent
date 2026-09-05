@@ -296,9 +296,10 @@ včetně frekvence, módu, pásma a vypočteného bearingu. Tento krok nikdy
 nepotvrzuje ani neukládá záznam v Log4OM2.
 
 Band-opening notifikace vznikají při překročení konfigurovaného počtu
-odlišných stanic na pásmu. Od spuštění procesu se pro každé pásmo měří kladný
-přírůstek proti předchozímu cyklu a GUI drží pouze jedinou notifikaci s dosud
-největším přírůstkem. Historie QSO je viditelná přímo v GUI.
+odlišných stanic na pásmu. V jednom cyklu mohou vzniknout události pro všechna
+nově otevřená pásma; opakované otevření stejného pásma respektuje cooldown a
+celkový počet událostí klouzavý hodinový limit. Historie QSO je viditelná
+přímo v GUI.
 
 ## Propagation a debug skóre
 

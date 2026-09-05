@@ -129,20 +129,18 @@ class AppState:
     def _check_band_openings(self, candidates: list[Candidate], now: float) -> None:
         """Zavolá BandOpeningTracker nad úplnou aktivitou zdrojů,
         jakou vidí i scoring.py _propagation_reason (viz
-        aggregator.band_activity). Nového vítěze uloží do DB jako auditní
-        historii; API zobrazuje pouze tracker.best_event aktuálního běhu."""
+        aggregator.band_activity). Každou vrácenou událost uloží do DB jako
+        auditní historii -- tracker může v jednom cyklu vrátit i více
+        současně otevřených pásem, všechny se zaloguj."""
         activity = band_activity(candidates)
         events = self.band_opening_tracker.check(activity, now=now)
-        if events:
-            # Tracker vrací jen nového vítěze: jedinou největší změnu od
-            # spuštění této instance station agenta.
-            event = events[0]
-            propagation = self.propagation.context if self.propagation else None
-            weather = (
-                f"aktuální Kp {propagation.kp:.1f}"
-                if propagation is not None and propagation.kp is not None
-                else "space-weather data nejsou dostupná"
-            )
+        propagation = self.propagation.context if self.propagation else None
+        weather = (
+            f"aktuální Kp {propagation.kp:.1f}"
+            if propagation is not None and propagation.kp is not None
+            else "space-weather data nejsou dostupná"
+        )
+        for event in events:
             reason = f"{event.reason}; {weather}"
             self.db.log_band_opening(event.band, event.station_count, event.ts, reason)
 

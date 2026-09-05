@@ -260,8 +260,8 @@ DEFAULT_PRESETS: dict[str, FilterPreset] = {
 class NotificationsConfig:
     """Band-opening notifikace -- lokálně odvozený signál z aktuálně
     přijatých spotů (žádné externí solar/K-index API, viz scoring.py
-    _propagation_reason a aggregator.band_activity). GUI ukazuje jediný
-    největší kladný přírůstek naměřený od spuštění (viz notifications.py)."""
+    _propagation_reason a aggregator.band_activity). Každé nové otevření
+    pásma se předá GUI (viz notifications.py)."""
 
     enabled: bool = True
     # Kolik odlišných stanic na pásmu už považujeme za "otevřené pásmo".

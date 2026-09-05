@@ -226,16 +226,20 @@ class WebApiTests(unittest.TestCase):
             )
         )
         event = self.app_state.band_opening_tracker.check({"20m": 6}, now=1000.0)[0]
+        second = self.app_state.band_opening_tracker.check(
+            {"20m": 6, "40m": 4}, now=1010.0
+        )[0]
 
         status, _, body = self._get("/api/notifications")
         self.assertEqual(status, 200)
         data = json.loads(body)
-        self.assertEqual(len(data["band_openings"]), 1)
+        self.assertEqual(len(data["band_openings"]), 2)
         entry = data["band_openings"][0]
-        self.assertEqual(entry["band"], event.band)
-        self.assertEqual(entry["station_count"], event.station_count)
-        self.assertEqual(entry["station_count_change"], 6)
+        self.assertEqual(entry["band"], second.band)
+        self.assertEqual(entry["station_count"], second.station_count)
+        self.assertEqual(entry["station_count_change"], 4)
         self.assertIn("ts", entry)
+        self.assertEqual(data["band_openings"][1]["band"], event.band)
 
     def test_qso_history_requires_explicit_post_and_preserves_bearing(self):
         self.app_state.refresh_candidates()

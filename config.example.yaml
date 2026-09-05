@@ -207,9 +207,7 @@ notifications:
   enabled: true
   # Kolik odlišných stanic na pásmu už považujeme za "otevřené pásmo".
   min_distinct_stations: 5
-  # Zachováno pro kompatibilitu starších configů; při jediném průběžném
-  # maximu se samostatný cooldown neuplatňuje.
+  # Minimální rozestup mezi opakovanými otevřeními téhož pásma.
   cooldown_minutes: 30
-  # Zachováno pro kompatibilitu starších configů; GUI vždy obsahuje nejvýše
-  # jednu notifikaci.
+  # Nejvyšší počet band-opening událostí za klouzavou hodinu.
   max_per_hour: 10
