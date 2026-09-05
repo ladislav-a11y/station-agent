@@ -606,3 +606,37 @@
   mimo možnosti tohoto sandboxu (žádné QRZ.com přihlašovací údaje nejsou
   nastavené v `config.yaml`), stejně jako zdokumentováno u předchozí
   QRZ iterace.
+
+## Report: kompletní test suite + bezpečnostní pravidla + ochrana config/kódu -- iterace 2/10 -- 05.09.2026
+
+* Samostatný rozsah (Inbox požadavek): "Spustit kompletní test suite, uvést
+  výsledek a ověřit, že platí bezpečnostní pravidla Station Agentu a že se
+  nemažou config ani kód. Zachovat chování mimo tento rozsah."
+* **Výsledek test suite** (`python -m pytest -q`, spuštěno a vyhodnoceno
+  výhradně orchestrátorem, jak vyžaduje runtime kontrakt -- agent sám
+  test suite nikdy nespouští): **PROŠLY**, žádný test neselhal.
+* **Ověření bezpečnostních pravidel** (`AGENTS.md` "Tvrdá pravidla"),
+  staticky prohlédnuto v aktuálním stavu stromu:
+  - Žádné PTT/TX: řetězec `ptt` (case-insensitive) se nikde v
+    `station_agent/` nevyskytuje; `tests/test_rig_safety.py` toto
+    hlídá jako regresní test.
+  - `station_agent/rig/base.py` nabízí jen uzavřenou sadu metod
+    (`get_frequency`, `get_mode`, `set_frequency`, `set_mode`,
+    `get_status`, `close`) -- žádná obecná "pošli příkaz" metoda.
+  - Anténní rotátor: `bearing.py` pouze počítá/zobrazuje směr, žádný
+    modul rotátor fyzicky neovládá.
+  - Log4OM2: `log4om.py` obsahuje jen `build_prefill_fields`/
+    `build_prefill_xml`/`send_prefill`/`Log4OMBridge.prefill` -- žádná
+    funkce, která by QSO automaticky uložila do deníku.
+  - `config.example.yaml` má `rig.mode: mock` (hamlib mock je default).
+  - `web/server.py` vynucuje `LOOPBACK_HOSTS = {"127.0.0.1", "localhost",
+    "::1"}` pro `web.host` a při jiné hodnotě vyhazuje chybu (řádky
+    401-409) -- GUI nelze nastavit na externí adresu.
+* **Ochrana config/kódu proti smazání**: `git status --porcelain` je
+  prázdný (žádné neuložené změny, nic nechybí) a `git log --diff-filter=D`
+  pro `config.yaml`, `config.example.yaml` a `station_agent/*` nevrací
+  žádný smazaný soubor. `station_agent/rig/` obsahuje kompletní sadu
+  (`__init__.py`, `base.py`, `mock_rig.py`, `rigctld.py`).
+* Mimo rozsah beze změny: žádný zdrojový ani konfigurační soubor nebyl
+  touto iterací upraven -- jde čistě o perzistovaný report zjištění
+  popsaných výše, chování projektu mimo tento rozsah je zachováno.
