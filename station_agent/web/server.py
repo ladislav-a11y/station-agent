@@ -324,6 +324,22 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
                         callsign.strip().upper(), int(freq_hz), mode.strip(), band,
                         candidate.bearing_deg, note.strip(),
                     )
+                    if app_state.log4om_bridge is not None:
+                        # Stejná explicitní ruční akce operátora, co zapisuje
+                        # lokální QSO historii, jen navíc PŘEDVYPLNÍ řádek
+                        # v Log4OM2 (fire-and-forget UDP, viz log4om.py) --
+                        # nic se tím v Log4OM2 automaticky neukládá ani
+                        # nepotvrzuje (AGENTS.md pravidlo 3). Log4OM2 nemusí
+                        # běžet nebo poslouchat na configovaném portu; selhání
+                        # odeslání nesmí shodit už úspěšně zapsanou lokální
+                        # QSO historii.
+                        try:
+                            app_state.log4om_bridge.prefill(candidate)
+                        except OSError:
+                            logger.warning(
+                                "Log4OM2 prefill se nepodařilo odeslat na %s:%d",
+                                app_state.log4om_bridge.host, app_state.log4om_bridge.port,
+                            )
                 self._send_json({"ok": True}, status=201)
                 return
 

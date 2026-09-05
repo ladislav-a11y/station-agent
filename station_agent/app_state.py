@@ -12,6 +12,7 @@ from station_agent.aggregator import Aggregator, band_activity
 from station_agent.autotune import AutoTuneEngine, TuneDecision, apply_decision
 from station_agent.config import AppConfig
 from station_agent.db import Database
+from station_agent.log4om import Log4OMBridge
 from station_agent.models import Candidate, RigState
 from station_agent.notifications import BandOpeningTracker
 from station_agent.propagation import PropagationService
@@ -27,11 +28,13 @@ class AppState:
         db: Database,
         rig: RigControl,
         aggregator: Aggregator,
+        log4om_bridge: Log4OMBridge | None = None,
     ):
         self.config = config
         self.db = db
         self.rig = rig
         self.aggregator = aggregator
+        self.log4om_bridge = log4om_bridge
         self.propagation = PropagationService(
             config.station.qth_locator, config.propagation.refresh_seconds,
             kp_url=config.propagation.kp_url, sfi_url=config.propagation.sfi_url,

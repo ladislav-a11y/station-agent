@@ -17,6 +17,7 @@ from station_agent.app_state import AppState, PollingLoop
 from station_agent.bandplan import SUPPORTED_BANDS
 from station_agent.config import AppConfig, load_config
 from station_agent.db import Database
+from station_agent.log4om import Log4OMBridge
 from station_agent.modes import SUPPORTED_MODES
 from station_agent.rig import create_rig_control
 from station_agent.web.server import create_server
@@ -151,7 +152,21 @@ def build_app_state(config: AppConfig) -> AppState:
         if rig is not None:
             rig.close()
         raise
-    app_state = AppState(config, db, rig, aggregator)
+    log4om_bridge = None
+    if config.log4om.enabled:
+        # Payload/odesílání jsou hotové a otestované (station_agent/log4om.py),
+        # ale nikdy dřív nebyly zapojené do běžícího agenta -- config.log4om
+        # se načetl, ale nic ho nepoužilo. Bridge se sestrojí jen při
+        # explicitním opt-inu uživatele (AGENTS.md pravidlo 4/6) a nikdy nic
+        # neukládá/nepotvrzuje sám -- viz web/server.py POST /api/qso/history,
+        # jediné místo, které ho volá, po stejné explicitní ruční akci
+        # operátora, co zapisuje lokální QSO historii.
+        log4om_bridge = Log4OMBridge(
+            host=config.log4om.host,
+            port=config.log4om.port,
+            station_callsign=config.station.callsign,
+        )
+    app_state = AppState(config, db, rig, aggregator, log4om_bridge=log4om_bridge)
     if config.rig.mode == "live":
         try:
             app_state.sync_rig_state_from_hardware()

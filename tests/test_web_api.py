@@ -20,6 +20,7 @@ from station_agent.aggregator import Aggregator
 from station_agent.app_state import AppState, PollingLoop
 from station_agent.config import AppConfig, NotificationsConfig, WebConfig
 from station_agent.db import Database
+from station_agent.log4om import Log4OMBridge
 from station_agent.models import RigState
 from station_agent.notifications import BandOpeningTracker
 from station_agent.propagation import PropagationContext
@@ -29,7 +30,9 @@ from station_agent.web import server as server_module
 from station_agent.web.server import create_server
 
 
-def build_test_app_state(port: int = 0, scoring_cfg: ScoringConfig | None = None) -> AppState:
+def build_test_app_state(
+    port: int = 0, scoring_cfg: ScoringConfig | None = None, log4om_bridge=None
+) -> AppState:
     config = AppConfig()
     config.web = WebConfig(host="127.0.0.1", port=port)
     db = Database(":memory:")
@@ -37,7 +40,7 @@ def build_test_app_state(port: int = 0, scoring_cfg: ScoringConfig | None = None
     if scoring_cfg is None:
         scoring_cfg = ScoringConfig(weights=dict(DEFAULT_WEIGHTS), spot_max_age_minutes=15)
     aggregator = Aggregator([MockAdapter()], db, scoring_cfg, qth_latlon=(50.0755, 14.4378))
-    return AppState(config, db, rig, aggregator)
+    return AppState(config, db, rig, aggregator, log4om_bridge=log4om_bridge)
 
 
 class WebApiTests(unittest.TestCase):
@@ -757,6 +760,112 @@ class ShutdownEndpointTests(unittest.TestCase):
         repo_root = Path(__file__).resolve().parent.parent
         self.assertTrue((repo_root / "station_agent" / "db.py").exists())
         self.assertTrue((repo_root / "station_agent" / "web" / "server.py").exists())
+
+
+class Log4OMWiringTests(unittest.TestCase):
+    """config.log4om je hotový a otestovaný payload/UDP odesílač
+    (station_agent/log4om.py), ale nikdy dřív nebyl zapojený do skutečně
+    běžícího agenta -- AppState/cli.py ho nikdy nekonstruovaly ani
+    nevolaly. Tyto testy ověřují, že explicitní zápis QSO (tlačítko v GUI)
+    teď navíc pošle Log4OM2 prefill packet, pořád jen jako fire-and-forget
+    UDP bez jakéhokoli automatického uložení/potvrzení QSO (AGENTS.md
+    pravidlo 3)."""
+
+    def setUp(self):
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.settimeout(2)
+        host, port = self.listener.getsockname()
+        bridge = Log4OMBridge(host=host, port=port, station_callsign="OK1TEST")
+        self.app_state = build_test_app_state(log4om_bridge=bridge)
+        self.server = create_server(self.app_state)
+        self.base_url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join(timeout=5)
+        self.server.server_close()
+        self.app_state.db.close()
+        self.listener.close()
+
+    def _post_json(self, path: str, payload: dict):
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}{path}", data=data, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read())
+
+    def test_logging_qso_sends_log4om_prefill_packet(self):
+        self.app_state.refresh_candidates()
+        candidate = self.app_state.latest_candidates[0]
+        status, data = self._post_json(
+            "/api/qso/history",
+            {"callsign": candidate.callsign, "freq_hz": candidate.freq_hz,
+             "mode": candidate.mode, "band": candidate.band},
+        )
+        self.assertEqual(status, 201)
+        self.assertTrue(data["ok"])
+
+        received, _ = self.listener.recvfrom(4096)
+        self.assertIn(b"<dx_call>" + candidate.callsign.encode("utf-8"), received)
+        self.assertIn(b"<operator_call>OK1TEST</operator_call>", received)
+
+    def test_log4om_send_failure_does_not_break_local_qso_logging(self):
+        class RaisingBridge:
+            host = "127.0.0.1"
+            port = 1
+
+            def prefill(self, candidate):
+                raise OSError("simulated Log4OM2 unreachable")
+
+        self.app_state.log4om_bridge = RaisingBridge()
+        self.app_state.refresh_candidates()
+        candidate = self.app_state.latest_candidates[0]
+        status, data = self._post_json(
+            "/api/qso/history",
+            {"callsign": candidate.callsign, "freq_hz": candidate.freq_hz,
+             "mode": candidate.mode, "band": candidate.band},
+        )
+        self.assertEqual(status, 201)
+        self.assertTrue(data["ok"])
+        with self.app_state.lock:
+            rows = self.app_state.db.recent_qsos()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["callsign"], candidate.callsign)
+
+
+class NoLog4OMConfiguredTests(unittest.TestCase):
+    def test_qso_logging_works_unchanged_when_log4om_not_configured(self):
+        app_state = build_test_app_state()
+        self.assertIsNone(app_state.log4om_bridge)
+        server = create_server(app_state)
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            app_state.refresh_candidates()
+            candidate = app_state.latest_candidates[0]
+            data = json.dumps(
+                {"callsign": candidate.callsign, "freq_hz": candidate.freq_hz,
+                 "mode": candidate.mode, "band": candidate.band}
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                f"{base_url}/api/qso/history", data=data,
+                headers={"Content-Type": "application/json"}, method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status = resp.status
+                body = json.loads(resp.read())
+            self.assertEqual(status, 201)
+            self.assertTrue(body["ok"])
+        finally:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+            app_state.db.close()
 
 
 class CreateServerSafetyTests(unittest.TestCase):

@@ -29,6 +29,44 @@ def _unused_loopback_port() -> int:
         return sock.getsockname()[1]
 
 
+class Log4OMBridgeStartupTests(unittest.TestCase):
+    """config.log4om se dřív načetl (config.py::Log4OMConfig), ale
+    build_app_state ho nikdy nepoužil -- žádná AppState instance nikdy
+    neměla způsob, jak Log4OM2 prefill vůbec poslat. Zajišťuje, že bridge
+    vznikne jen na explicitní opt-in (enabled: true), s hodnotami přesně
+    z configu, a že defaultně (enabled: false) žádný bridge nevznikne."""
+
+    def _build(self, log4om_overrides: dict):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            config = config_from_dict(
+                {
+                    "station": {"callsign": "OK1TEST"},
+                    "database": {"path": database_path},
+                    "sources": {"mock": {"enabled": False}},
+                    "propagation": {"enabled": False},
+                    "log4om": log4om_overrides,
+                }
+            )
+            app_state = build_app_state(config)
+            try:
+                return app_state.log4om_bridge
+            finally:
+                app_state.aggregator.close()
+                app_state.db.close()
+                app_state.rig.close()
+
+    def test_no_bridge_when_log4om_disabled(self):
+        self.assertIsNone(self._build({"enabled": False}))
+
+    def test_bridge_constructed_with_configured_host_port_and_callsign_when_enabled(self):
+        bridge = self._build({"enabled": True, "host": "127.0.0.1", "port": 2333})
+        self.assertIsNotNone(bridge)
+        self.assertEqual(bridge.host, "127.0.0.1")
+        self.assertEqual(bridge.port, 2333)
+        self.assertEqual(bridge.station_callsign, "OK1TEST")
+
+
 class LiveRigStartupTests(unittest.TestCase):
     def test_build_app_state_does_not_crash_when_rigctld_is_unreachable(self):
         """Regrese: `rig.mode: live` bez běžícího rigctld shazovalo celý

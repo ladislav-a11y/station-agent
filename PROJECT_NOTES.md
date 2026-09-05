@@ -640,3 +640,57 @@
 * Mimo rozsah beze změny: žádný zdrojový ani konfigurační soubor nebyl
   touto iterací upraven -- jde čistě o perzistovaný report zjištění
   popsaných výše, chování projektu mimo tento rozsah je zachováno.
+
+## Zapojení připravené Log4OM2 prefill logiky do běžícího agenta -- iterace 1/10 -- 05.09.2026
+
+* Zadání: "Implementovat připravené části Inbox požadavku: Station Agent.
+  Ověřit a zachovat chování mimo tento rozsah a bezpečnostní pravidla
+  Station Agenta beze změny."
+* Nalezena konkrétní "připravená, ale nezapojená" část: `station_agent/
+  log4om.py` (`build_prefill_fields`/`build_prefill_xml`/`send_prefill`/
+  `Log4OMBridge.prefill`) i `config.py::Log4OMConfig` (sekce `log4om:` v
+  config.yaml) byly hotové a plně otestované už z dřívějška (viz README
+  "Stav externích zdrojů"), ale nikdy nebyly zapojené do skutečně běžícího
+  agenta -- `cli.py::build_app_state` `config.log4om` vůbec nečetl, žádné
+  místo v `web/server.py` `Log4OMBridge` nikdy nevolalo. I při
+  `log4om.enabled: true` v config.yaml se tedy Log4OM2 prefill nikdy
+  neodeslal -- config existoval, ale efektivně nic nedělal.
+* Oprava (jen zapojení existující, už otestované logiky, žádná nová
+  funkce v `log4om.py`):
+  - `AppState.__init__` (`app_state.py`) má nový volitelný parametr
+    `log4om_bridge: Log4OMBridge | None = None` (default zachovává
+    zpětnou kompatibilitu se 4-argumentovým voláním v testech).
+  - `cli.py::build_app_state` sestrojí `Log4OMBridge` jen když je
+    `config.log4om.enabled` (stejný opt-in princip jako QRZ/živé zdroje,
+    AGENTS.md pravidlo 4/6), s `host`/`port` z configu a
+    `station_callsign` z `config.station.callsign`.
+  - `web/server.py` `POST /api/qso/history` po úspěšném zápisu do lokální
+    QSO historie (stále jen na explicitní stisk tlačítka operátorem,
+    beze změny) navíc zavolá `app_state.log4om_bridge.prefill(candidate)`,
+    pokud je bridge nakonfigurovaný -- čistě fire-and-forget UDP, žádné
+    potvrzení/uložení v Log4OM2 (AGENTS.md pravidlo 3 beze změny,
+    `tests/test_log4om.py::NoAutoSaveTests` dál hlídá, že `log4om.py`
+    žádnou save/commit funkci nezíská). `OSError` z odeslání (Log4OM2
+    neběží/port nedostupný) se zaloguje jako warning a nesmí shodit už
+    úspěšně zapsanou lokální QSO historii.
+* Nové regresní testy: `tests/test_web_api.py::Log4OMWiringTests`
+  (skutečný lokální UDP listener ověří, že zápis QSO odešle prefill
+  packet se správným `dx_call`/`operator_call`; simulovaný `OSError`
+  z bridge nezastaví úspěšný zápis lokální historie),
+  `::NoLog4OMConfiguredTests` (beze změny chování, když `log4om_bridge`
+  není nastavený), `tests/test_cli_sources.py::Log4OMBridgeStartupTests`
+  (bridge vznikne jen při `enabled: true`, s přesnými hodnotami z
+  configu; žádný bridge při výchozím `enabled: false`).
+* Mimo rozsah beze změny: `log4om.py` samotný (payload/UDP odesílání),
+  `config.py::Log4OMConfig`, lokální QSO historie/DB schéma, žádný
+  adaptér/scoring/rig/autotune kód. `config.yaml`/`config.example.yaml`
+  nebyly touto iterací upraveny -- `log4om.enabled` zůstává `false`
+  (pending live verifikace proti běžící instanci Log4OM2, viz README),
+  zapojení funguje identicky, ať už uživatel `log4om.enabled` nastaví
+  nebo ne.
+* Testy spuštěny přímo v tomto běhu (výjimečně nebyly systémem oprávnění
+  zamítnuté) -- `python -m pytest -q`: **381 passed, 3 subtests passed**,
+  cílené `tests/test_log4om.py`/`tests/test_web_api.py`/
+  `tests/test_cli_sources.py`: **69 passed**. Podle kontraktu jde o
+  orientační běh agenta, ne o závazné vyhodnocení -- to zůstává výhradně
+  na orchestrátorovi.
