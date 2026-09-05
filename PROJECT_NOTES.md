@@ -813,3 +813,16 @@
 * Výsledek testů z minulé iterace (`python -m pytest -q`) nebyl k
   dispozici (viz zadání); spuštění a vyhodnocení kompletní sady zůstává
   výhradně na orchestrátorovi.
+
+## Předání dokončených změn ai-orchestratoru -- iterace 1/10 -- 05.09.2026
+
+* Přidán `ORCHESTRATOR_HANDOFF.md`, který uzavírá připravenou část Inbox
+  požadavku na straně Station Agent repozitáře: vymezuje předávaný rozsah
+  `926a615..4cc07eb`, aktuální implementační HEAD, dostupnou regresní evidenci
+  a zachované bezpečnostní invarianty.
+* Dokument výslovně není auditem ani verdiktem. Testy, živé ověření procesu v
+  PowerShellu a GUI a rozhodnutí `accepted`/`rejected` ponechává výhradně
+  `ai-orchestratoru`; obsahuje pro něj samostatný, kontrolovatelný checklist a
+  požadavek na perzistenci výsledku do Trella.
+* Produkční kód, konfigurace a testy nebyly touto iterací změněny. Testovací
+  příkaz agent nespustil; výsledek z minulé iterace nebyl k dispozici.
