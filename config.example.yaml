@@ -134,6 +134,8 @@ log4om:
   enabled: false
   host: "127.0.0.1"
   port: 2333
+  # Diagnostika přes --diagnose-live neodesílá QSO data. U UDP umí ověřit
+  # pouze adresaci a lokální síťovou cestu, nikoli příjem běžící aplikací.
 
 web:
   # MUSÍ zůstat loopback adresa -- server.py to i tvrdě vynucuje v kódu.

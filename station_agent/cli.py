@@ -18,6 +18,7 @@ from station_agent.bandplan import SUPPORTED_BANDS
 from station_agent.config import AppConfig, load_config
 from station_agent.country_lookup import CountryLookup
 from station_agent.db import Database
+from station_agent.diagnostics import run_live_diagnostics
 from station_agent.log4om import Log4OMBridge
 from station_agent.modes import SUPPORTED_MODES
 from station_agent.rig import create_rig_control
@@ -235,6 +236,11 @@ def main(argv: list[str] | None = None) -> int:
             "config.yaml, a skončí bez spuštění agenta"
         ),
     )
+    parser.add_argument(
+        "--diagnose-live",
+        action="store_true",
+        help="ověří přístup k databázi a povoleným Log4OM2/Cluster endpointům a skončí",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -254,6 +260,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.clear_database:
         return clear_database(config)
+
+    if args.diagnose_live:
+        try:
+            results = run_live_diagnostics(config)
+        except (TypeError, ValueError) as exc:
+            logger.error("Diagnostiku nelze spustit kvůli neplatné konfiguraci endpointu: %s", exc)
+            return 1
+        for result in results:
+            level = logging.INFO if result.ok else logging.ERROR
+            verification = "ověřeno" if result.verified else "nepotvrzeno"
+            logger.log(level, "[%s] %s: %s", verification, result.component, result.detail)
+        return 0 if all(result.ok for result in results) else 1
 
     try:
         # build_app_state patří do vlastního try -- i validní config.yaml

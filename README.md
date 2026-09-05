@@ -179,6 +179,23 @@ nepotvrdí automaticky, to musí vždy udělat operátor ručně v Log4OM2.
    Log4OM2 má zapnutý příjem externích spot packetů.
 4. Prefill nikdy neukládá QSO — v Log4OM2 vždy potvrď/ulož záznam ručně.
 
+### Diagnostika přístupu
+
+Po nastavení endpointů lze před běžným startem spustit samostatnou kontrolu:
+
+```powershell
+python -m station_agent --config config.yaml --diagnose-live
+```
+
+Příkaz nespouští GUI ani polling a nemaže ani nemění aplikační data. Ověří
+`PRAGMA quick_check` nakonfigurované SQLite databáze a reálné navázání TCP
+spojení ke každému povolenému `dx_cluster*` zdroji. U Log4OM2 zkontroluje
+překlad adresy a dostupnost lokální UDP síťové cesty, ale výsledek výslovně
+označí jako `nepotvrzeno`: UDP nemá handshake, takže bez kontroly přímo v
+Log4OM2 nelze pravdivě tvrdit, že aplikace paket přijala. Vypnuté integrace
+se nekontaktují a jsou rovněž uvedeny jako `nepotvrzeno`. Exit kód je `1`,
+pokud ověřitelná kontrola selže, jinak `0`.
+
 ## Spuštění testů
 
 ```bash
