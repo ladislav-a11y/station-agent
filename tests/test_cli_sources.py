@@ -67,6 +67,23 @@ class Log4OMBridgeStartupTests(unittest.TestCase):
         self.assertEqual(bridge.station_callsign, "OK1TEST")
 
 
+class OptionalStationIdentityTests(unittest.TestCase):
+    def test_missing_identity_does_not_remove_mock_or_pskreporter_sources(self):
+        config = config_from_dict(
+            {"sources": {"mock": {"enabled": True}, "pskreporter": {"enabled": True}}}
+        )
+        sources = build_sources(config)
+        self.assertEqual([source.name for source in sources], ["mock", "pskreporter"])
+
+    def test_missing_station_callsign_is_not_replaced_for_login_source(self):
+        config = config_from_dict(
+            {"sources": {"mock": {"enabled": False}, "dx_cluster": {"enabled": True}}}
+        )
+        sources = build_sources(config)
+        self.assertEqual(len(sources), 1)
+        self.assertIsNone(sources[0].callsign)
+
+
 class LiveRigStartupTests(unittest.TestCase):
     def test_build_app_state_does_not_crash_when_rigctld_is_unreachable(self):
         """Regrese: `rig.mode: live` bez běžícího rigctld shazovalo celý

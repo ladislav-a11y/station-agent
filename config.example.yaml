@@ -4,10 +4,13 @@
 # -- viz AGENTS.md.
 
 station:
-  callsign: "OK1EXAMPLE"
+  # Všechny údaje stanice jsou volitelné. Bez callsignu se nevytváří
+  # zástupná identita; zdroje vyžadující login mohou mít vlastní callsign.
+  callsign: null
   # QTH lze zadat buď jako Maidenhead locator, nebo přímo lat/lon (stupně).
   # Pokud je locator vyplněný, má přednost.
-  qth_locator: "JN79FG"
+  # Bez lokátoru i souřadnic zůstanou bearing a vzdálenost nevyplněné.
+  qth_locator: null
   latitude: null
   longitude: null
 

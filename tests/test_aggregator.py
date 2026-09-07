@@ -181,6 +181,23 @@ class DxccBearingTests(unittest.TestCase):
         )
         attach_dxcc_and_bearing(candidates, qth_latlon=None)
         self.assertIsNone(candidates[0].bearing_deg)
+        self.assertIsNone(candidates[0].distance_km)
+
+    def test_candidates_are_still_created_and_scored_without_qth(self):
+        now = time.time()
+        candidates = group_spots_into_candidates(
+            [Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", timestamp=now, source="mock")]
+        )
+        attach_dxcc_and_bearing(candidates, qth_latlon=None)
+        db = Database(":memory:")
+        try:
+            attach_scores(candidates, ScoringConfig(min_score=0), db, now=now)
+        finally:
+            db.close()
+        self.assertEqual(len(candidates), 1)
+        self.assertIsNotNone(candidates[0].score)
+        self.assertIsNone(candidates[0].bearing_deg)
+        self.assertIsNone(candidates[0].distance_km)
 
     def test_invalid_qth_is_reported_and_path_stays_unknown(self):
         candidates = group_spots_into_candidates([

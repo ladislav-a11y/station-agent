@@ -80,6 +80,34 @@ class MiniYamlParserTests(unittest.TestCase):
 
 
 class LoadConfigTests(unittest.TestCase):
+    def test_all_station_identity_fields_are_optional(self):
+        config = config_from_dict({})
+        self.assertIsNone(config.station.callsign)
+        self.assertIsNone(config.station.qth_locator)
+        self.assertIsNone(config.station.get_latlon())
+
+    def test_blank_station_identity_fields_normalize_to_missing(self):
+        config = config_from_dict({"station": {"callsign": "  ", "qth_locator": ""}})
+        self.assertIsNone(config.station.callsign)
+        self.assertIsNone(config.station.qth_locator)
+
+    def test_callsign_without_qth_is_preserved_without_coordinates(self):
+        config = config_from_dict({"station": {"callsign": " ok1test "}})
+        self.assertEqual(config.station.callsign, "OK1TEST")
+        self.assertIsNone(config.station.get_latlon())
+
+    def test_locator_without_callsign_provides_coordinates(self):
+        config = config_from_dict({"station": {"qth_locator": " jn79fg "}})
+        self.assertIsNone(config.station.callsign)
+        self.assertEqual(config.station.qth_locator, "JN79FG")
+        self.assertIsNotNone(config.station.get_latlon())
+
+    def test_latlon_without_callsign_or_locator_provides_coordinates(self):
+        config = config_from_dict({"station": {"latitude": 50.0, "longitude": 14.0}})
+        self.assertIsNone(config.station.callsign)
+        self.assertIsNone(config.station.qth_locator)
+        self.assertEqual(config.station.get_latlon(), (50.0, 14.0))
+
     def test_station_coordinates_distinguish_unknown_from_invalid(self):
         self.assertIsNone(StationConfig().get_latlon())
         with self.assertRaisesRegex(ValueError, "uvedeny společně"):

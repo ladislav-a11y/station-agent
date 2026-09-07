@@ -181,10 +181,18 @@ def _load_yaml_text(text: str) -> dict:
 
 @dataclass
 class StationConfig:
-    callsign: str = ""
+    callsign: str | None = None
     qth_locator: str | None = None
     latitude: float | None = None
     longitude: float | None = None
+
+    def __post_init__(self) -> None:
+        # Prázdné hodnoty a YAML null mají stejný význam: údaj není
+        # nakonfigurovaný.  Nedosazujeme žádnou ukázkovou identitu.
+        callsign = str(self.callsign).strip().upper() if self.callsign is not None else ""
+        qth_locator = str(self.qth_locator).strip().upper() if self.qth_locator is not None else ""
+        self.callsign = callsign or None
+        self.qth_locator = qth_locator or None
 
     def get_latlon(self) -> tuple[float, float] | None:
         if self.qth_locator:
@@ -433,7 +441,7 @@ def config_from_dict(raw: dict) -> AppConfig:
 
     station_raw = raw.get("station", {}) or {}
     station = StationConfig(
-        callsign=station_raw.get("callsign", ""),
+        callsign=station_raw.get("callsign"),
         qth_locator=station_raw.get("qth_locator"),
         latitude=station_raw.get("latitude"),
         longitude=station_raw.get("longitude"),

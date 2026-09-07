@@ -40,6 +40,11 @@ class PrefillBuildingTests(unittest.TestCase):
         fields = build_prefill_fields(candidate)
         self.assertEqual(fields["distance_km"], "")
 
+    def test_missing_station_callsign_is_omitted_instead_of_replaced(self):
+        fields = build_prefill_fields(make_candidate(), station_callsign=None)
+        self.assertNotIn("operator_call", fields)
+        self.assertNotIn("None", build_prefill_xml(fields))
+
     def test_build_prefill_xml_escapes_special_characters(self):
         fields = build_prefill_fields(make_candidate())
         xml_payload = build_prefill_xml(fields)

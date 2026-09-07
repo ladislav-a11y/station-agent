@@ -21,12 +21,11 @@ from xml.sax.saxutils import escape
 from station_agent.models import Candidate
 
 
-def build_prefill_fields(candidate: Candidate, station_callsign: str = "") -> dict[str, str]:
+def build_prefill_fields(candidate: Candidate, station_callsign: str | None = None) -> dict[str, str]:
     """Sestaví slovník polí pro předvyplnění řádku v deníku (žádné uložení)."""
     fields = {
         "app": "StationAgent",
         "purpose": "prefill-only",
-        "operator_call": station_callsign,
         "dx_call": candidate.callsign,
         "frequency_mhz": f"{candidate.freq_hz / 1_000_000:.6f}",
         "band": candidate.band,
@@ -35,6 +34,8 @@ def build_prefill_fields(candidate: Candidate, station_callsign: str = "") -> di
         "bearing_deg": f"{candidate.bearing_deg:.0f}" if candidate.bearing_deg is not None else "",
         "distance_km": f"{candidate.distance_km:.0f}" if candidate.distance_km is not None else "",
     }
+    if station_callsign:
+        fields["operator_call"] = station_callsign
     return fields
 
 
@@ -68,7 +69,7 @@ def send_prefill(xml_payload: str, host: str, port: int, timeout: float = 2.0) -
 class Log4OMBridge:
     """Pending-verifikace bridge pro Log4OM2 prefill (viz docstring modulu)."""
 
-    def __init__(self, host: str, port: int, station_callsign: str = ""):
+    def __init__(self, host: str, port: int, station_callsign: str | None = None):
         self.host = host
         self.port = port
         self.station_callsign = station_callsign
