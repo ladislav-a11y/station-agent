@@ -18,6 +18,7 @@ from station_agent.notifications import BandOpeningTracker
 from station_agent.propagation import PropagationService
 from station_agent.rig.base import RigControl
 from station_agent.rig.rigctld import RigctldError
+from station_agent.scoring import score_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class AppState:
         ) if config.propagation.enabled else None
         self.autotune_engine = AutoTuneEngine(config.autotune, config.scoring.min_score)
         self.current_rig_state: RigState | None = None
+        self._current_candidate: Candidate | None = None
         self.latest_candidates: list[Candidate] = []
         self.last_decision: TuneDecision | None = None
         self.band_opening_tracker = BandOpeningTracker(
@@ -81,7 +83,7 @@ class AppState:
                 if c.band in self.config.bands and c.mode in self.config.modes
             ]
             self.latest_candidates = candidates
-            self._sync_current_score(candidates)
+            self._sync_current_score(candidates, all_candidates, now=now, propagation=context)
             if context is None:
                 logger.debug("propagation snapshot: nedostupný")
             else:
@@ -106,22 +108,30 @@ class AppState:
             self._check_band_openings(all_candidates, now=now)
             return candidates
 
-    def _sync_current_score(self, candidates: list[Candidate]) -> None:
+    def _sync_current_score(
+        self,
+        candidates: list[Candidate],
+        scoring_candidates: list[Candidate] | None = None,
+        *,
+        now: float | None = None,
+        propagation=None,
+    ) -> None:
         """Skóre aktuálně naladěné stanice nesmí zůstat zamrzlé na hodnotě
         z okamžiku výběru (viz autotune.apply_decision) -- AutoTuneEngine.decide()
         ho v kroku 7 porovnává s průběžně přepočítávanými kandidáty (delta
         vs. min_score_delta), takže musí být stejně čerstvé jako u ostatních
         -- jinak by naladěná stanice mohla vypadat uměle lepší/horší, než
         ve skutečnosti je, a AUTO TUNE by se podle toho rozhodoval špatně.
-        Pokud stanice mezi aktuálními kandidáty už není (spot expiroval,
-        vypadl z filtrů), poslední známé skóre se zachovává beze změny.
+        Pokud stanice z běžného seznamu zmizí, uchová se její poslední
+        kandidátní snapshot a při každé další obnově se znovu ohodnotí.
         """
         state = self.current_rig_state
         if state is None or state.callsign is None:
             return
+        scoring_candidates = candidates if scoring_candidates is None else scoring_candidates
         match = next(
             (
-                c for c in candidates
+                c for c in scoring_candidates
                 if c.callsign == state.callsign
                 and c.freq_hz == state.freq_hz
                 and c.mode == state.mode
@@ -129,7 +139,26 @@ class AppState:
             None,
         )
         if match is not None:
+            self._current_candidate = match
             state.score = match.score.total if match.score else None
+            return
+
+        snapshot = self._current_candidate
+        if snapshot is None:
+            return
+        def is_needed(candidate: Candidate) -> bool:
+            return candidate.dxcc is None or not self.db.is_worked(candidate.dxcc.name)
+
+        activity_candidates = [*scoring_candidates, snapshot]
+        snapshot.score = score_candidate(
+            snapshot,
+            self.config.scoring,
+            is_needed_dxcc=is_needed,
+            now=now,
+            band_activity=band_activity(activity_candidates),
+            propagation=propagation,
+        )
+        state.score = snapshot.score.total
 
     def _check_band_openings(self, candidates: list[Candidate], now: float) -> None:
         """Zavolá BandOpeningTracker nad úplnou aktivitou zdrojů,
@@ -183,6 +212,7 @@ class AppState:
                 new_state = apply_decision(self.rig, decision, self.db)
                 if new_state is not None:
                     self.current_rig_state = new_state
+                    self._current_candidate = decision.candidate
             self.last_decision = decision
             return decision
 
@@ -231,6 +261,7 @@ class AppState:
                 raise
             if new_state is not None:
                 self.current_rig_state = new_state
+                self._current_candidate = candidate
                 # BUG P5/P4: ruční NALADIT musí AUTO TUNE vypnout (jinak by ho
                 # mohl hned zase přeladit pryč) a HOLD zapnout (chrání čerstvě
                 # naladěnou stanici po min_hold_seconds -- viz odpočet

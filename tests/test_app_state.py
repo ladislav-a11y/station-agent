@@ -265,15 +265,89 @@ class CurrentStationScoreFreshnessTests(unittest.TestCase):
         app_state.aggregator.close()
         app_state.db.close()
 
-    def test_sync_current_score_preserves_last_known_when_station_not_among_candidates(self):
+    def test_sync_current_score_recalculates_when_station_not_among_candidates(self):
         app_state = build_app_state()
         app_state.current_rig_state = RigState(
             freq_hz=14_195_000, mode="SSB", tuned_at=1000.0, callsign="JA1XYZ", score=10,
         )
+        current = Candidate(
+            callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", band="20m",
+            first_seen=1000.0, last_seen=1000.0, score=ScoreResult(total=77, reasons=[]),
+        )
+        app_state._sync_current_score([current], now=1000.0)
 
-        app_state._sync_current_score([])
+        app_state._sync_current_score([], now=1000.0 + 20 * 60)
 
-        self.assertEqual(app_state.current_rig_state.score, 10)
+        self.assertLess(app_state.current_rig_state.score, 77)
+        app_state.aggregator.close()
+        app_state.db.close()
+
+    def test_score_drop_changes_best_candidate(self):
+        app_state = build_app_state()
+        app_state.config.autotune.enabled = True
+        app_state.config.autotune.min_hold_seconds = 0
+        app_state.config.autotune.min_score_delta = 5
+        app_state.autotune_engine.min_score = 0
+        current = Candidate(
+            callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", band="20m",
+            first_seen=1000.0, last_seen=1000.0, score=ScoreResult(total=90, reasons=[]),
+        )
+        app_state.current_rig_state = RigState(
+            freq_hz=current.freq_hz, mode=current.mode, tuned_at=1000.0,
+            callsign=current.callsign, score=90,
+        )
+        app_state._sync_current_score([current], now=1000.0)
+        refreshed_current = Candidate(
+            callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", band="20m",
+            first_seen=1000.0, last_seen=2200.0,
+            score=ScoreResult(total=40, reasons=[]),
+        )
+        challenger = Candidate(
+            callsign="W1AW", freq_hz=14_200_000, mode="SSB", band="20m",
+            first_seen=2200.0, last_seen=2200.0,
+            score=ScoreResult(total=60, reasons=[]),
+        )
+
+        app_state._sync_current_score([challenger, refreshed_current], now=2200.0)
+        app_state.latest_candidates = [challenger, refreshed_current]
+        rescored_current = app_state.current_rig_state.score
+        decision = app_state.run_autotune_cycle(now=2200.0)
+
+        self.assertLess(rescored_current, 60)
+        self.assertEqual(decision.action, "TUNE")
+        self.assertEqual(decision.candidate.callsign, "W1AW")
+        app_state.aggregator.close()
+        app_state.db.close()
+
+    def test_disappeared_current_station_remains_in_score_comparison(self):
+        app_state = build_app_state()
+        app_state.config.autotune.enabled = True
+        app_state.config.autotune.min_hold_seconds = 0
+        app_state.config.autotune.min_score_delta = 50
+        app_state.autotune_engine.min_score = 0
+        current = Candidate(
+            callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB", band="20m",
+            first_seen=1000.0, last_seen=1000.0, score=ScoreResult(total=80, reasons=[]),
+        )
+        app_state.current_rig_state = RigState(
+            freq_hz=current.freq_hz, mode=current.mode, tuned_at=1000.0,
+            callsign=current.callsign, score=80,
+        )
+        app_state._sync_current_score([current], now=1000.0)
+        challenger = Candidate(
+            callsign="W1AW", freq_hz=14_200_000, mode="SSB", band="20m",
+            first_seen=1010.0, last_seen=1010.0,
+            score=ScoreResult(total=81, reasons=[]),
+        )
+
+        app_state._sync_current_score([challenger], now=1010.0)
+        app_state.latest_candidates = [challenger]
+        refreshed_score = app_state.current_rig_state.score
+        decision = app_state.run_autotune_cycle(now=1010.0)
+
+        self.assertIsNotNone(refreshed_score)
+        self.assertEqual(decision.action, "NONE")
+        self.assertIn("min_score_delta", decision.reason)
         app_state.aggregator.close()
         app_state.db.close()
 
