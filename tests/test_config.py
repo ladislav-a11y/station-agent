@@ -55,6 +55,7 @@ log4om:
   host: "127.0.0.1"
   port: 2333
 log4om_lookup:
+  enabled: true
   path: "C:/logs/custom.sqlite"
 web:
   host: "127.0.0.1"
@@ -133,15 +134,27 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.log4om.host, "127.0.0.1")
         self.assertEqual(config.log4om.port, 2333)
         self.assertEqual(config.log4om_lookup.path, "C:/logs/custom.sqlite")
+        self.assertTrue(config.log4om_lookup.enabled)
         self.assertEqual(config.web.port, 9999)
         self.assertTrue(config.propagation.enabled)
 
-    def test_log4om_lookup_has_unc_default_without_credentials(self):
+    def test_log4om_lookup_is_disabled_without_private_default_or_credentials(self):
         config = config_from_dict({})
-        self.assertEqual(
-            config.log4om_lookup.path,
-            r"\\192.168.88.101\public\JTDX\ok1rpl.SQLite",
-        )
+        self.assertFalse(config.log4om_lookup.enabled)
+        self.assertEqual(config.log4om_lookup.path, "")
+
+    def test_enabled_log4om_lookup_requires_path(self):
+        with self.assertRaisesRegex(ValueError, "path"):
+            config_from_dict({"log4om_lookup": {"enabled": True, "path": ""}})
+
+    def test_log4om_lookup_rejects_credentials_embedded_in_unc_authority(self):
+        with self.assertRaisesRegex(ValueError, "Přihlašovací údaje"):
+            config_from_dict({
+                "log4om_lookup": {
+                    "enabled": True,
+                    "path": r"\\user:secret@server\share\log.sqlite",
+                }
+            })
 
     def test_missing_config_file_raises_actionable_error(self):
         # Fresh checkout nemá commitnutý config.yaml (viz .gitignore) -- bez

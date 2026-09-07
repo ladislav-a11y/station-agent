@@ -60,7 +60,7 @@ class Log4OMCandidateIntegrationTests(unittest.TestCase):
         self.assertEqual(visible, [other_mode, other_frequency])
         self.assertTrue(state.log4om_verification.verified)
 
-    def test_unavailable_database_keeps_candidates_visible_and_blocks_autotune(self):
+    def test_unavailable_database_keeps_candidates_visible_and_autotune_fail_open(self):
         original = candidate()
         unavailable = QSOVerificationResult(
             QSOVerificationStatus.UNAVAILABLE, "Databáze Log4OM2 není dostupná."
@@ -72,14 +72,11 @@ class Log4OMCandidateIntegrationTests(unittest.TestCase):
         self.assertEqual(state.refresh_candidates(now=100.0), [original])
         decision = state.run_autotune_cycle(now=100.0)
 
-        self.assertEqual(decision.action, "NONE")
-        self.assertIn("bezpečně zablokováno", decision.reason)
-        self.assertIn(unavailable.diagnostic, decision.reason)
-        state.rig.set_frequency.assert_not_called()
+        self.assertEqual(decision.action, "TUNE")
 
         status = _build_status(state)["log4om_verification"]
         self.assertFalse(status["verified"])
-        self.assertTrue(status["autotune_blocked"])
+        self.assertFalse(status["autotune_blocked"])
         self.assertEqual(status["status"], "unavailable")
         self.assertEqual(status["diagnostic"], unavailable.diagnostic)
 

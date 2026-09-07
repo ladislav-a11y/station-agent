@@ -47,7 +47,10 @@ def _readonly_uri(path: str) -> str:
     # SQLite přijímá Windows i UNC cesty s dopřednými lomítky. Parametr mode=ro
     # je podstatný: chybějící soubor se nesmí vytvořit a zdroj nelze změnit.
     sqlite_path = os.path.abspath(path).replace("\\", "/")
-    return f"file:{quote(sqlite_path, safe='/:')}?mode=ro"
+    # immutable=1 zabraňuje SQLite sahat na journal/WAL/SHM vedle databáze.
+    # Checker je proto určen pro neměnný snapshot/zálohu, nikoli pro soubor,
+    # do kterého současně zapisuje Log4OM2.
+    return f"file:{quote(sqlite_path, safe='/:')}?mode=ro&immutable=1"
 
 
 def _khz_to_hz(value: object) -> int | None:
@@ -80,28 +83,29 @@ class Log4OMQSOChecker:
         if not os.path.exists(self.database_path):
             return QSOVerificationResult(
                 QSOVerificationStatus.UNAVAILABLE,
-                f"Databáze Log4OM2 není dostupná na cestě {self.database_path!r}.",
+                "Databáze Log4OM2 není dostupná na nakonfigurované cestě.",
             )
         if not os.path.isfile(self.database_path) or not os.access(self.database_path, os.R_OK):
             return QSOVerificationResult(
                 QSOVerificationStatus.UNREADABLE,
-                f"Cesta {self.database_path!r} není čitelný databázový soubor.",
+                "Nakonfigurovaná cesta není čitelný databázový soubor.",
             )
 
         try:
             with closing(sqlite3.connect(_readonly_uri(self.database_path), uri=True)) as connection:
+                connection.execute("PRAGMA query_only=ON")
                 columns = {
                     str(row[1]).lower()
                     for row in connection.execute('PRAGMA table_info("Log")')
                 }
-                if not {"call", "mode", "freq"}.issubset(columns):
+                if not {"callsign", "mode", "freq"}.issubset(columns):
                     return QSOVerificationResult(
                         QSOVerificationStatus.UNKNOWN_DATABASE,
-                        "Databáze nemá očekávanou tabulku Log se sloupci call, mode a freq.",
+                        "Databáze nemá očekávanou tabulku Log se sloupci callsign, mode a freq.",
                     )
 
                 rows = connection.execute(
-                    'SELECT mode, freq FROM "Log" WHERE UPPER(TRIM(call)) = ?',
+                    'SELECT mode, freq FROM "Log" WHERE UPPER(TRIM(callsign)) = ?',
                     (normalized_call,),
                 )
                 matched = any(
@@ -109,15 +113,15 @@ class Log4OMQSOChecker:
                     and _khz_to_hz(row_freq) == requested_hz
                     for row_mode, row_freq in rows
                 )
-        except sqlite3.DatabaseError as exc:
+        except sqlite3.DatabaseError:
             return QSOVerificationResult(
                 QSOVerificationStatus.UNREADABLE,
-                f"Databázi Log4OM2 nelze přečíst v read-only režimu: {exc}.",
+                "Databázi Log4OM2 nelze přečíst v read-only režimu.",
             )
-        except OSError as exc:
+        except OSError:
             return QSOVerificationResult(
                 QSOVerificationStatus.UNAVAILABLE,
-                f"Databáze Log4OM2 je momentálně nedostupná: {exc}.",
+                "Databáze Log4OM2 je momentálně nedostupná.",
             )
 
         if matched:

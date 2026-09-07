@@ -141,10 +141,11 @@ log4om:
   # pouze adresaci a lokální síťovou cestu, nikoli příjem běžící aplikací.
 
 # Samostatný read-only zdroj pro ověření, zda už přesné QSO existuje v tabulce
-# Log. Nezapisuje do databáze, nemění její schéma a nepotřebuje mapovaný disk
-# ani uložené přihlašovací údaje.
+# Log. Nezapisuje do databáze ani nemění její schéma. UNC cesta používá aktuální
+# Windows přihlášení; heslo ani uživatelské jméno do tohoto souboru nepatří.
 log4om_lookup:
-  path: "\\\\192.168.88.101\\public\\JTDX\\ok1rpl.SQLite"
+  enabled: false
+  path: ""
 
 web:
   # MUSÍ zůstat loopback adresa -- server.py to i tvrdě vynucuje v kódu.

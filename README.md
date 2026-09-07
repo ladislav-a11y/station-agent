@@ -182,14 +182,27 @@ nepotvrdí automaticky, to musí vždy udělat operátor ručně v Log4OM2.
 ### Read-only ověření existujícího QSO
 
 Samostatný `Log4OMQSOChecker` v `station_agent/log4om_lookup.py` kontroluje
-tabulku `Log` výhradně přes SQLite URI s `mode=ro`. Výchozí cesta je
-`\\192.168.88.101\public\JTDX\ok1rpl.SQLite`; lze ji změnit bez mapování disku
-`Z:` a bez ukládání přihlašovacích údajů:
+tabulku `Log` výhradně přes SQLite URI s `mode=ro&immutable=1` a následné
+`PRAGMA query_only=ON`. Integrace je defaultně vypnutá a nemá vestavěnou
+soukromou cestu:
 
 ```yaml
 log4om_lookup:
-  path: "\\\\192.168.88.101\\public\\JTDX\\ok1rpl.SQLite"
+  enabled: true
+  path: "\\\\server\\share\\Log4OM.sqlite"
 ```
+
+Lokální i UNC cesta se otevírá pod aktuálním Windows přihlášením. SQLite URI
+neumí předat síťové jméno a heslo. Pokud share vyžaduje jinou identitu, musí ji
+správce připojit mimo Station Agent, například spravovanou SMB relací s údajem
+uloženým ve Windows Credential Manageru. Přihlašovací údaje ani mapovací příkazy
+nepatří do `config.yaml`, argumentů procesu nebo logů. Chyby přístupu vracejí
+obecnou diagnostiku bez cesty, údajů ovladače a osobních QSO dat.
+
+`immutable=1` současně brání vzniku `-journal`, `-wal` a `-shm` souborů. Cesta
+proto musí mířit na neměnný snapshot/zálohu nebo databázi při vypnutém Log4OM2,
+ne na živý soubor, do kterého se právě zapisuje; jinak by SQLite smělo vrátit
+zastaralý pohled. Aktualizaci snapshotu musí zajistit provozní postup Log4OM2.
 
 Metoda `check(callsign, mode, freq_hz)` porovnává volací značku,
 normalizovaný mód a hlavní `freq`, kterou převádí z kHz na celé Hz. `freqrx`
@@ -201,8 +214,9 @@ Při každém sestavení kandidátů Station Agent tímto read-only rozhraním o
 jejich přesnou trojici callsign, normalizovaný mód a hlavní frekvenci. Ověřená
 shoda se ze seznamu odstraní bez časového omezení; jiný mód nebo frekvence
 zůstávají použitelné. Nedostupná, nečitelná nebo neznámá databáze se v GUI
-zobrazí jako neověřená se svou diagnostikou a AUTO TUNE zůstane bezpečně
-zablokované. Lokální QSO historie, ruční zápis a UDP prefill tím nejsou měněny.
+zobrazí jako neověřená se svou diagnostikou. Doplňkový lookup v tomto případě
+selže otevřeně: kandidáti a původní AUTO TUNE pravidla pokračují beze změny.
+Lokální QSO historie, ruční zápis a UDP prefill tím nejsou měněny.
 
 ### Diagnostika přístupu
 
@@ -253,7 +267,7 @@ bezpečnostní invarianty, které se nesmí porušit).
 | PSKReporter | ✅ parser XML reportu otestovaný na fixture datech | ✅ **živě funkční** — `fetch()` reálně provádí HTTP GET na `query_url` (výchozí `retrieve.pskreporter.info/query`) a parsuje odpověď; síťová vrstva je otestovaná proti skutečnému lokálnímu HTTP serveru v `tests/test_adapters_live.py` |
 | QRZ.com XML lookup (DXCC/země fallback) | ✅ parser session/lookup XML otestovaný na fixture datech (`tests/test_qrz_parsing.py`) | ✅ **živě funkční** HTTP klient (`station_agent/adapters/qrz.py`, síťová vrstva otestovaná proti lokálnímu HTTP serveru v `tests/test_qrz_live.py`); vyžaduje vlastní `qrz.username`/`qrz.password` (QRZ.com XML Subscription), defaultně `qrz.enabled: false` |
 | Log4OM2 UDP prefill | ✅ sestavení payloadu otestované | ⏳ **pending verifikace** — odeslání UDP paketu je implementované, ale nebylo ověřeno proti běžící instanci Log4OM2 |
-| Log4OM2 QSO lookup | ✅ přesná read-only shoda `call`/`mode`/`freq` otestovaná na lokální SQLite fixture | ✅ souborová/UNC SQLite cesta, chyby dostupnosti se vracejí jako typovaný neověřený výsledek |
+| Log4OM2 QSO lookup | ✅ přesná read-only shoda `callsign`/`mode`/`freq` podle ověřeného SQLite schématu | ✅ lokální/UNC cesta pod aktuální Windows identitou; chyby jsou typovaný neověřený výsledek bez úniku cesty či údajů |
 | Log4OM2 country databáze (DXCC/země/souřadnice) | ✅ read-only JSON/XML resolver s longest-prefix-match | ✅ **automaticky používaná**, pokud je v profilu Log4OM2 dostupný `ctyfile.json`; při nedostupnosti následují pyhamtools, offline tabulka a volitelný QRZ fallback |
 
 ### DXCC/země fallback přes QRZ.com

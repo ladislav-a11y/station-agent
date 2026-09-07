@@ -67,6 +67,31 @@ class Log4OMBridgeStartupTests(unittest.TestCase):
         self.assertEqual(bridge.station_callsign, "OK1TEST")
 
 
+class Log4OMLookupStartupTests(unittest.TestCase):
+    def _build(self, lookup):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = config_from_dict({
+                "database": {"path": str(Path(temp_dir) / "station.sqlite3")},
+                "sources": {"mock": {"enabled": False}},
+                "propagation": {"enabled": False},
+                "log4om_lookup": lookup,
+            })
+            app_state = build_app_state(config)
+            try:
+                return app_state.log4om_checker
+            finally:
+                app_state.aggregator.close()
+                app_state.db.close()
+                app_state.rig.close()
+
+    def test_lookup_is_not_constructed_without_explicit_opt_in(self):
+        self.assertIsNone(self._build({"enabled": False}))
+
+    def test_lookup_uses_explicit_path_when_enabled(self):
+        checker = self._build({"enabled": True, "path": r"\\server\share\log.sqlite"})
+        self.assertEqual(checker.database_path, r"\\server\share\log.sqlite")
+
+
 class OptionalStationIdentityTests(unittest.TestCase):
     def test_missing_identity_does_not_remove_mock_or_pskreporter_sources(self):
         config = config_from_dict(

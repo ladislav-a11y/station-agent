@@ -178,7 +178,11 @@ def build_app_state(config: AppConfig) -> AppState:
         rig,
         aggregator,
         log4om_bridge=log4om_bridge,
-        log4om_checker=Log4OMQSOChecker(config.log4om_lookup.path),
+        log4om_checker=(
+            Log4OMQSOChecker(config.log4om_lookup.path)
+            if config.log4om_lookup.enabled
+            else None
+        ),
     )
     if config.rig.mode == "live":
         try:

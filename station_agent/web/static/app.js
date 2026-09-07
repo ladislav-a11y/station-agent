@@ -299,7 +299,7 @@ function renderLog4OMStatus(status) {
     el.textContent = `Log4OM2: ověřeno -- ${verification.diagnostic}`;
     return;
   }
-  el.textContent = `Log4OM2: neověřeno -- ${verification.diagnostic} AUTO TUNE je zablokováno.`;
+  el.textContent = `Log4OM2: neověřeno -- ${verification.diagnostic} Ostatní funkce pokračují beze změny.`;
 }
 
 function renderDecision(status) {

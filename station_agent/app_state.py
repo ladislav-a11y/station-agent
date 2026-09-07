@@ -242,20 +242,9 @@ class AppState:
     def run_autotune_cycle(self, now: float | None = None) -> TuneDecision:
         now = time.time() if now is None else now
         with self.lock:
-            verification = self.log4om_verification
-            if self.log4om_checker is not None and (
-                verification is None or not verification.verified
-            ):
-                diagnostic = (
-                    verification.diagnostic
-                    if verification is not None
-                    else "Ověření databáze Log4OM2 zatím neproběhlo."
-                )
-                decision = TuneDecision(
-                    "NONE", None, f"AUTO TUNE bezpečně zablokováno: {diagnostic}"
-                )
-                self.last_decision = decision
-                return decision
+            # Lookup je doplňkový filtr duplicit. Jeho nedostupnost se zobrazí
+            # operátorovi, ale nesmí vyřadit jinak funkční cestu AUTO TUNE.
+            # Všechny původní bezpečnostní brány AutoTuneEngine zůstávají.
             decision = self.autotune_engine.decide(
                 self.latest_candidates,
                 self.current_rig_state,

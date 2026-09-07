@@ -305,7 +305,8 @@ class Log4OMConfig:
 
 @dataclass
 class Log4OMLookupConfig:
-    path: str = r"\\192.168.88.101\public\JTDX\ok1rpl.SQLite"
+    enabled: bool = False
+    path: str = ""
 
 
 @dataclass
@@ -486,8 +487,18 @@ def config_from_dict(raw: dict) -> AppConfig:
 
     log4om_lookup_raw = raw.get("log4om_lookup", {}) or {}
     log4om_lookup = Log4OMLookupConfig(
-        path=str(log4om_lookup_raw.get("path", Log4OMLookupConfig().path)),
+        enabled=bool(log4om_lookup_raw.get("enabled", False)),
+        path=str(log4om_lookup_raw.get("path") or "").strip(),
     )
+    if log4om_lookup.enabled and not log4om_lookup.path:
+        raise ValueError("log4om_lookup.path musí být vyplněná, když je lookup zapnutý")
+    normalized_lookup_path = log4om_lookup.path.replace("\\", "/")
+    unc_authority = normalized_lookup_path.removeprefix("//").split("/", 1)[0]
+    if log4om_lookup.enabled and normalized_lookup_path.startswith("//") and "@" in unc_authority:
+        raise ValueError(
+            "Přihlašovací údaje nesmí být součástí log4om_lookup.path; "
+            "UNC share připojte pod Windows identitou mimo Station Agent"
+        )
 
     web_raw = raw.get("web", {}) or {}
     web = WebConfig(

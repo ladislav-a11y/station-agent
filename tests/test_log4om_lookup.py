@@ -8,6 +8,7 @@ from unittest.mock import patch
 from station_agent.log4om_lookup import (
     Log4OMQSOChecker,
     QSOVerificationStatus,
+    _readonly_uri,
 )
 
 
@@ -18,10 +19,10 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
         with closing(sqlite3.connect(self.db_path)) as connection:
             with connection:
                 connection.execute(
-                    'CREATE TABLE "Log" (call TEXT, mode TEXT, freq REAL, freqrx REAL)'
+                    'CREATE TABLE "Log" (callsign VARCHAR(50) NOT NULL, mode VARCHAR(30) NOT NULL, freq DECIMAL(18,3) NOT NULL, freqrx DECIMAL(18,3) NOT NULL)'
                 )
                 connection.execute(
-                    'INSERT INTO "Log" (call, mode, freq, freqrx) VALUES (?, ?, ?, ?)',
+                    'INSERT INTO "Log" (callsign, mode, freq, freqrx) VALUES (?, ?, ?, ?)',
                     (" ok1abc ", "USB", 14195.125, 99999.0),
                 )
         self.checker = Log4OMQSOChecker(self.db_path)
@@ -55,6 +56,46 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
             self.checker.check("OK1ABC", "SSB", 14_195_125)
         self.assertIn("mode=ro", calls[0][0])
         self.assertTrue(calls[0][1]["uri"])
+
+    def test_readonly_uri_preserves_unc_authority_and_quotes_special_path(self):
+        uri = _readonly_uri(r"\\server\sdílená složka\log.sqlite")
+        self.assertTrue(uri.startswith("file://server/"))
+        self.assertIn("%C3%AD", uri)
+        self.assertIn("%20", uri)
+        self.assertTrue(uri.endswith("?mode=ro&immutable=1"))
+
+    def test_connection_enables_query_only_before_reading_schema(self):
+        statements = []
+        real_connect = sqlite3.connect
+
+        class RecordingConnection:
+            def __init__(self, connection):
+                self.connection = connection
+
+            def execute(self, statement, parameters=()):
+                statements.append(statement)
+                return self.connection.execute(statement, parameters)
+
+            def close(self):
+                self.connection.close()
+
+        with patch(
+            "station_agent.log4om_lookup.sqlite3.connect",
+            side_effect=lambda *args, **kwargs: RecordingConnection(real_connect(*args, **kwargs)),
+        ):
+            self.checker.check("OK1ABC", "SSB", 14_195_125)
+        self.assertEqual(statements[0], "PRAGMA query_only=ON")
+
+    def test_diagnostic_does_not_disclose_database_path_or_driver_error(self):
+        secret_path = os.path.join(self.tempdir.name, "user-secret.sqlite")
+        unavailable = Log4OMQSOChecker(secret_path).check("OK1ABC", "SSB", 14_195_125)
+        self.assertNotIn(secret_path, unavailable.diagnostic)
+        with patch(
+            "station_agent.log4om_lookup.sqlite3.connect",
+            side_effect=sqlite3.DatabaseError("password=super-secret"),
+        ):
+            unreadable = self.checker.check("OK1ABC", "SSB", 14_195_125)
+        self.assertNotIn("super-secret", unreadable.diagnostic)
 
     def test_unavailable_database_is_not_reported_as_verified_absence(self):
         result = Log4OMQSOChecker(os.path.join(self.tempdir.name, "missing.sqlite")).check(

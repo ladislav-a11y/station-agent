@@ -111,10 +111,7 @@ def _build_status(app_state: AppState) -> dict:
                     if log4om_result
                     else "Ověření databáze Log4OM2 zatím neproběhlo."
                 ),
-                "autotune_blocked": bool(
-                    app_state.log4om_checker is not None
-                    and (log4om_result is None or not log4om_result.verified)
-                ),
+                "autotune_blocked": False,
             },
             "last_decision": decision_to_dict(app_state.last_decision),
             "sources": app_state.aggregator.source_status(),
