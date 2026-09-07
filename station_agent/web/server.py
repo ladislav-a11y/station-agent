@@ -206,7 +206,7 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
             path = urlparse(self.path).path
             if path == "/":
                 self._send_static("index.html")
-            elif path in ("/app.js", "/style.css"):
+            elif path in ("/app.js", "/autotune_controls.js", "/style.css"):
                 self._send_static(path.lstrip("/"))
             elif path == "/api/candidates":
                 candidates = app_state.refresh_candidates()

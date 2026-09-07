@@ -4,7 +4,9 @@ výhradně na loopback adrese (viz AGENTS.md pravidlo 5)."""
 from __future__ import annotations
 
 import json
+import shutil
 import socket
+import subprocess
 import sqlite3
 import tempfile
 import threading
@@ -86,6 +88,11 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("javascript", content_type)
 
+        status, content_type, body = self._get("/autotune_controls.js")
+        self.assertEqual(status, 200)
+        self.assertIn("javascript", content_type)
+        self.assertIn(b"StationAutotuneControls", body)
+
         status, content_type, _ = self._get("/style.css")
         self.assertEqual(status, 200)
         self.assertIn("css", content_type)
@@ -111,14 +118,42 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('<button type="button" id="at-hold-ok">OK</button>', page)
         self.assertIn('class="autotune-mode-box"', page)
 
-        _, _, javascript = self._get("/app.js")
-        script = javascript.decode("utf-8")
-        self.assertIn('document.getElementById("at-enabled-ok").addEventListener("click"', script)
-        self.assertIn('updateAutotune({ enabled: true, hold: false });', script)
-        self.assertIn('document.getElementById("at-hold-ok").addEventListener("click"', script)
-        self.assertIn('updateAutotune({ enabled: false, hold: true });', script)
-        self.assertIn("clearCandidateSelection();", script)
-        self.assertIn("updateAutotune();", script)
+        self.assertIn('<script src="/autotune_controls.js"></script>', page)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for the browser click regression")
+    def test_autotune_ok_controls_execute_runtime_click_handlers(self):
+        controls_path = Path(server_module.STATIC_DIR) / "autotune_controls.js"
+        scenario = r'''
+const controls = require(process.argv[1]);
+const listeners = {};
+const document = { getElementById(id) { return {
+  addEventListener(event, callback) { listeners[id + ":" + event] = callback; }
+}; }};
+const calls = [];
+controls.bind({
+  document,
+  clearCandidateSelection() { calls.push(["clear"]); },
+  updateAutotune(payload) { calls.push(["update", payload]); }
+});
+listeners["at-enabled-ok:click"]();
+listeners["at-hold-ok:click"]();
+const expected = [
+  ["clear"],
+  ["update", {enabled: true, hold: false}],
+  ["update", {enabled: false, hold: true}]
+];
+if (JSON.stringify(calls) !== JSON.stringify(expected)) {
+  throw new Error("Unexpected click effects: " + JSON.stringify(calls));
+}
+'''
+        completed = subprocess.run(
+            [shutil.which("node"), "-e", scenario, str(controls_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_gui_shows_distinct_text_for_each_autotune_hold_visibility_state(self):
         """Viditelnost stavu v GUI: rocker přepínač sám o sobě nerozliší

@@ -475,17 +475,9 @@ document.getElementById("autotune-form").addEventListener("submit", async (ev) =
   await updateAutotune();
 });
 
-// Každé OK aktivuje zvolený režim a současně vypne druhý. Backend stejnou
-// výlučnost vynucuje také (web/server.py POST /api/autotune).
-document.getElementById("at-enabled-ok").addEventListener("click", () => {
-  // Návrat k automatickému režimu zároveň obnoví výchozí rozložení
-  // seznamu: ruční výběr ani jeho rozbalené bodové detaily už nejsou aktivní.
-  clearCandidateSelection();
-  updateAutotune({ enabled: true, hold: false });
-});
-document.getElementById("at-hold-ok").addEventListener("click", () => {
-  updateAutotune({ enabled: false, hold: true });
-});
+// Každé OK aktivuje zvolený režim a současně vypne druhý. Samostatný binder
+// umožňuje tentýž skutečný click-handler spustit i v regresním testu.
+StationAutotuneControls.bind({ document, clearCandidateSelection, updateAutotune });
 for (const id of ["at-min-score", "at-min-hold", "at-min-delta"]) {
   document.getElementById(id).addEventListener("change", () => updateAutotune());
 }
