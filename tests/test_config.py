@@ -54,6 +54,8 @@ log4om:
   enabled: false
   host: "127.0.0.1"
   port: 2333
+log4om_lookup:
+  path: "C:/logs/custom.sqlite"
 web:
   host: "127.0.0.1"
   port: 9999
@@ -102,8 +104,16 @@ class LoadConfigTests(unittest.TestCase):
         self.assertEqual(config.sources["dx_cluster"].options["host"], "example.net")
         self.assertEqual(config.log4om.host, "127.0.0.1")
         self.assertEqual(config.log4om.port, 2333)
+        self.assertEqual(config.log4om_lookup.path, "C:/logs/custom.sqlite")
         self.assertEqual(config.web.port, 9999)
         self.assertTrue(config.propagation.enabled)
+
+    def test_log4om_lookup_has_unc_default_without_credentials(self):
+        config = config_from_dict({})
+        self.assertEqual(
+            config.log4om_lookup.path,
+            r"\\192.168.88.101\public\JTDX\ok1rpl.SQLite",
+        )
 
     def test_missing_config_file_raises_actionable_error(self):
         # Fresh checkout nemá commitnutý config.yaml (viz .gitignore) -- bez

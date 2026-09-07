@@ -296,6 +296,11 @@ class Log4OMConfig:
 
 
 @dataclass
+class Log4OMLookupConfig:
+    path: str = r"\\192.168.88.101\public\JTDX\ok1rpl.SQLite"
+
+
+@dataclass
 class WebConfig:
     host: str = "127.0.0.1"
     port: int = 8765
@@ -407,6 +412,7 @@ class AppConfig:
     autotune: AutoTuneConfig = field(default_factory=AutoTuneConfig)
     sources: dict[str, SourceConfig] = field(default_factory=dict)
     log4om: Log4OMConfig = field(default_factory=Log4OMConfig)
+    log4om_lookup: Log4OMLookupConfig = field(default_factory=Log4OMLookupConfig)
     web: WebConfig = field(default_factory=WebConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     polling: PollingConfig = field(default_factory=PollingConfig)
@@ -468,6 +474,11 @@ def config_from_dict(raw: dict) -> AppConfig:
         enabled=bool(log4om_raw.get("enabled", False)),
         host=log4om_raw.get("host", "127.0.0.1"),
         port=int(log4om_raw.get("port", 2333)),
+    )
+
+    log4om_lookup_raw = raw.get("log4om_lookup", {}) or {}
+    log4om_lookup = Log4OMLookupConfig(
+        path=str(log4om_lookup_raw.get("path", Log4OMLookupConfig().path)),
     )
 
     web_raw = raw.get("web", {}) or {}
@@ -537,6 +548,7 @@ def config_from_dict(raw: dict) -> AppConfig:
         autotune=autotune,
         sources=sources,
         log4om=log4om,
+        log4om_lookup=log4om_lookup,
         web=web,
         database=database,
         polling=polling,

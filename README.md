@@ -179,6 +179,24 @@ nepotvrdí automaticky, to musí vždy udělat operátor ručně v Log4OM2.
    Log4OM2 má zapnutý příjem externích spot packetů.
 4. Prefill nikdy neukládá QSO — v Log4OM2 vždy potvrď/ulož záznam ručně.
 
+### Read-only ověření existujícího QSO
+
+Samostatný `Log4OMQSOChecker` v `station_agent/log4om_lookup.py` kontroluje
+tabulku `Log` výhradně přes SQLite URI s `mode=ro`. Výchozí cesta je
+`\\192.168.88.101\public\JTDX\ok1rpl.SQLite`; lze ji změnit bez mapování disku
+`Z:` a bez ukládání přihlašovacích údajů:
+
+```yaml
+log4om_lookup:
+  path: "\\\\192.168.88.101\\public\\JTDX\\ok1rpl.SQLite"
+```
+
+Metoda `check(callsign, mode, freq_hz)` porovnává volací značku,
+normalizovaný mód a hlavní `freq`, kterou převádí z kHz na celé Hz. `freqrx`
+se pro běžnou shodu nepoužívá. Výsledek rozlišuje nalezenou a nenalezenou
+ověřenou shodu od nedostupného, nečitelného nebo neznámého databázového
+souboru a vždy obsahuje srozumitelnou diagnostiku.
+
 ### Diagnostika přístupu
 
 Po nastavení endpointů lze před běžným startem spustit samostatnou kontrolu:
@@ -228,6 +246,7 @@ bezpečnostní invarianty, které se nesmí porušit).
 | PSKReporter | ✅ parser XML reportu otestovaný na fixture datech | ✅ **živě funkční** — `fetch()` reálně provádí HTTP GET na `query_url` (výchozí `retrieve.pskreporter.info/query`) a parsuje odpověď; síťová vrstva je otestovaná proti skutečnému lokálnímu HTTP serveru v `tests/test_adapters_live.py` |
 | QRZ.com XML lookup (DXCC/země fallback) | ✅ parser session/lookup XML otestovaný na fixture datech (`tests/test_qrz_parsing.py`) | ✅ **živě funkční** HTTP klient (`station_agent/adapters/qrz.py`, síťová vrstva otestovaná proti lokálnímu HTTP serveru v `tests/test_qrz_live.py`); vyžaduje vlastní `qrz.username`/`qrz.password` (QRZ.com XML Subscription), defaultně `qrz.enabled: false` |
 | Log4OM2 UDP prefill | ✅ sestavení payloadu otestované | ⏳ **pending verifikace** — odeslání UDP paketu je implementované, ale nebylo ověřeno proti běžící instanci Log4OM2 |
+| Log4OM2 QSO lookup | ✅ přesná read-only shoda `call`/`mode`/`freq` otestovaná na lokální SQLite fixture | ✅ souborová/UNC SQLite cesta, chyby dostupnosti se vracejí jako typovaný neověřený výsledek |
 | Log4OM2 country databáze (DXCC/země/souřadnice) | ✅ read-only JSON/XML resolver s longest-prefix-match | ✅ **automaticky používaná**, pokud je v profilu Log4OM2 dostupný `ctyfile.json`; při nedostupnosti následují pyhamtools, offline tabulka a volitelný QRZ fallback |
 
 ### DXCC/země fallback přes QRZ.com
