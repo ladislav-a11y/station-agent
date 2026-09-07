@@ -91,3 +91,146 @@ frontendu. Pole musí odpovídat DoD sekci "Skóre a zobrazované údaje":
 `callsign`, `dxcc`, `freq_hz`/`freq_mhz`, `mode`, `age_seconds`,
 `confirming_sources`, `spotters`, `best_snr_db`, `bearing_deg`,
 `distance_km`, `score.total`, `score.reasons[]`.
+
+## 6. Rešerše read-only historie Log4OM2
+
+Tato sekce je návrhový podklad pro případné pozdější doplnění informace o
+shodném QSO ke kandidátovi. Není to povolení zapisovat do databáze Log4OM2 ani
+měnit současný tok kandidátů. Ověření proběhlo 7. září 2026 pouze čtením dvou
+skutečných SQLite logů nakonfigurovaných v lokálním profilu Log4OM2: lokálního
+souboru a aktivního souboru na mapovaném disku, jehož kořenem je UNC share.
+Dotazy používaly SQLite URI s `mode=ro&immutable=1` a následné
+`PRAGMA query_only=ON`; nevznikl žádný pomocný soubor.
+
+### Ověřený kontrakt tabulky `Log`
+
+Oba soubory obsahovaly tabulky `Informations` a `Log` se shodnými relevantními
+sloupci:
+
+| Sloupec | Deklarovaný typ | NULL | Ověřený význam |
+|---|---|---|---|
+| `callsign` | `VARCHAR(50)` | zakázán | volací značka protistanice; v dotazu porovnávat bez ohledu na velikost písmen po `strip + upper` |
+| `mode` | `VARCHAR(30)` | zakázán | mód uložený Log4OM2, například `FT8`, `RTTY`, `USB`; pro Station Agent se musí normalizovat stejnou veřejnou funkcí jako spoty |
+| `freq` | `DECIMAL(18,3)` | zakázán, default `0` | vysílací/pracovní frekvence v **kHz**, nikoli Hz ani MHz |
+| `freqrx` | `DECIMAL(18,3)` | zakázán, default `0` | přijímací frekvence v kHz; hodnota `0` je v reálných řádcích běžná a znamená, že samostatná RX frekvence není uvedena |
+
+SQLite podle hodnoty ukládá `freq`/`freqrx` jako `INTEGER` nebo `REAL`, přestože
+schéma deklaruje `DECIMAL`; čtečka proto nesmí vyžadovat jediný runtime storage
+class. Pozorované hodnoty (`14076.1`, `18102.446`, `144174.959`) spolu s módy a
+pásmy potvrzují kHz. Převod z interního `Candidate.freq_hz` tedy musí být
+`freq_hz / 1000.0`. `freqrx = 0` se nesmí zaměnit za 0 Hz ani použít jako
+náhrada za `freq`. Pro běžný simplexní dotaz je autoritativní `freq`; nenulové
+`freqrx` lze vrátit jen jako doplňkovou evidenci splitu.
+
+Na ověřeném Windows stroji fungovalo stejné immutable read-only otevření i nad
+mapovaným diskem směřujícím na UNC share. To dokládá dostupnost této konkrétní
+kombinace klienta, share a SQLite souboru, nikoli obecnou bezpečnost souběžného
+čtení živé SQLite databáze přes všechny síťové filesystémy. SQLite zamykání a
+soudržnost journal/WAL souborů závisí na implementaci share. Produkční čtečka
+má proto selhat uzavřeně, nikdy nesmí přepnout na obyčejné zapisovatelné
+`sqlite3.connect(path)` a nesmí na share vytvářet journal, WAL ani SHM soubor.
+
+### Navržené rozhraní
+
+Rozhraní má být samostatný read-only adaptér, ne rozšíření `Database` v
+`station_agent/db.py`; tím zůstane lokální historie spotů, ladění a ručně
+potvrzených QSO fyzicky oddělená od externího logu.
+
+```python
+class LogLookupStatus(str, Enum):
+    VERIFIED = "verified"
+    UNAVAILABLE = "unavailable"
+    UNREADABLE = "unreadable"
+    UNKNOWN = "unknown"
+
+@dataclass(frozen=True)
+class LogLookupResult:
+    status: LogLookupStatus
+    matches: int = 0
+    reason: str = ""
+    freq_khz: float | None = None
+    freqrx_khz: float | None = None
+
+class Log4OMReadOnlyLog:
+    def lookup(self, callsign: str, mode: str, freq_hz: int) -> LogLookupResult: ...
+```
+
+Význam stavů je záměrně úplný a fail-closed:
+
+- `verified`: databáze i schéma byly čitelné a existuje alespoň jeden řádek,
+  který odpovídá normalizované trojici callsign + mód + frekvence;
+- `unavailable`: cesta není nakonfigurovaná, soubor/share neexistuje nebo právě
+  není dosažitelný;
+- `unreadable`: soubor lze otevřít na úrovni filesystemu, ale read-only SQLite
+  otevření, kontrola schématu nebo SELECT selže (oprávnění, poškození,
+  nepodporovaný formát, chybějící povinné sloupce);
+- `unknown`: databáze a schéma jsou čitelné, ale žádný odpovídající řádek
+  neexistuje. Tento stav není důkazem, že QSO nikdy neproběhlo.
+
+Vstup se normalizuje jednou: callsign `strip().upper()`, mód přes
+`normalize_mode()` a frekvence z kladného celočíselného Hz na kHz. Protože
+Log4OM2 ukládá například `USB`/`LSB`, zatímco Station Agent používá `SSB`, musí
+SQL dotaz pro SSB přijmout aliasy `USB`, `LSB`, `SSB` a `PHONE`; ostatní známé
+aliasy musí používat stejnou mapu jako `modes.normalize_mode()`, ne druhou
+ručně udržovanou normalizaci. Frekvenční tolerance musí být explicitní a
+testovaná. Doporučený výchozí kontrakt je nejvýše polovina rozlišení uloženého
+sloupce, tedy `abs(freq - :freq_khz) <= 0.0005` kHz; širší toleranci nelze bez
+produktového rozhodnutí vydávat za přesnou shodu již uskutečněného QSO.
+
+Bezpečné otevření musí sestavit korektní SQLite `file:` URI i pro mezery,
+diakritiku a UNC cestu, použít `mode=ro`, ihned nastavit `PRAGMA query_only=ON`
+a povolit jen konstantní SELECT/PRAGMA příkazy. `immutable=1` je vhodné pro
+neměnný snapshot nebo zálohu. U živé databáze se nesmí použít bez ověření
+journal módu a snapshot strategie: SQLite pak předpokládá, že se soubor nemění,
+což může při souběhu s Log4OM2 vracet zastaralý obraz. Pokud nelze živý log
+otevřít bez vedlejšího zápisu a konzistentně, výsledek je `unreadable` a GUI
+nesmí tvrdit `verified`.
+
+### Místo zapojení a zachované chování
+
+Současný tok je `Spot.__post_init__` (normalizace callsignu, módu a Hz) ->
+`Aggregator.build_candidates()` (filtrování, slučování, DXCC/bearing, skóre) ->
+`AppState.refresh_candidates()` (`latest_candidates`) ->
+`GET /api/candidates` -> `candidate_to_dict()` -> tabulka GUI. AUTO TUNE dostává
+tentýž filtrovaný seznam, ale kandidáta nabídne k naladění jen při explicitně
+zapnutém AUTO TUNE, vypnutém HOLD, povoleném pásmu/módu a dosažení `min_score`;
+další přeladění navíc respektuje aktuální stanici, filtry, `min_hold_seconds` a
+`min_score_delta` podle `AutoTuneEngine.decide()`.
+
+Případný lookup se má připojit jako volitelná read-only anotace kandidáta po
+jeho sestavení, před serializací. Stav externího logu nesmí kandidáta odstranit,
+měnit jeho skóre ani sám zapnout/vypnout či jinak ovlivnit AUTO TUNE. Stávající
+`database.path` zůstane cestou výhradně k lokální Station Agent SQLite databázi.
+Ruční `POST /api/qso/history` musí dál nejprve explicitně zapsat lokální
+`qso_history`; volitelný UDP prefill po stejné operátorské akci zůstane
+fire-and-forget a nesmí se změnit na zápis do tabulky `Log`.
+
+Externí cesta patří do nové samostatné konfigurační sekce (například
+`log4om_readonly.enabled` a `log4om_readonly.database_path`), defaultně vypnuté.
+Nesmí se automaticky odvozovat z `database.path`, UDP `log4om.host/port` ani z
+první nalezené zálohy. Automatické načtení profilu Log4OM2 může být jen
+explicitní strategie s jednoznačným výsledkem; více profilů/cest musí skončit
+stavem `unavailable` s vysvětlením, nikoli tichým výběrem.
+
+### Doporučené testovací scénáře
+
+1. Fixture se skutečným minimálním schématem `Log`: přesná shoda, žádná shoda,
+   case/whitespace callsignu, `USB`/`LSB` proti `SSB`, desetinná frekvence a
+   hranice tolerance.
+2. `freqrx=0` i nenulová split hodnota: lookup používá `freq`, ale výsledek
+   bezpečně vrací doplňkovou RX hodnotu nebo `None`.
+3. Chybějící cesta/share -> `unavailable`; odmítnuté oprávnění, ne-SQLite
+   soubor, chybějící tabulka/sloupec a poškozená DB -> `unreadable`; bez úniku
+   tracebacku nebo osobních QSO dat do API/logu.
+4. Spy/authorizer ověří, že adaptér provádí jen SELECT a read-only PRAGMA a že
+   vedle DB nevznikne `-journal`, `-wal` ani `-shm`; pokusy o INSERT, DDL,
+   ATTACH a zapisovatelné PRAGMA jsou odmítnuty.
+5. Cesty s mezerou, diakritikou a skutečný dočasný SMB/UNC share na Windows;
+   odpojení share během dotazu se mapuje na `unavailable` nebo `unreadable`,
+   nikdy na `unknown` či `verified`.
+6. Souběh s procesem zapisujícím WAL/rollback-journal: pouze konzistentní
+   snapshot smí vrátit `verified`; nepodporovaná síťová konfigurace selže
+   uzavřeně. `immutable=1` se testuje jen nad neměnnou fixture/zálohou.
+7. Integrační regrese: všechny čtyři stavy se pouze zobrazí; seznam a pořadí
+   kandidátů, AUTO TUNE rozhodnutí, lokální `qso_history`, ruční QSO endpoint a
+   UDP prefill zůstávají při vypnuté i nedostupné integraci beze změny.
