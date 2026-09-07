@@ -47,6 +47,7 @@ class DXCCEntity:
     latitude: float
     longitude: float
     cq_zone: int = 0
+    locator: str | None = None
 
 
 @dataclass

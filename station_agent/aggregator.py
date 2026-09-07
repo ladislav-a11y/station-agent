@@ -172,6 +172,8 @@ def attach_dxcc_and_bearing(
         candidate.dxcc = entity
         if not candidate.country and entity is not None:
             candidate.country = entity.name
+        if not candidate.locator and entity is not None and entity.locator:
+            candidate.locator = entity.locator
         if qth_latlon is None or (
             candidate.bearing_deg is not None and candidate.distance_km is not None
         ):

@@ -89,9 +89,20 @@ class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
         self.assertEqual(payload["callsign"], "4L5O")
         self.assertEqual(payload["country"], "Georgia")
         self.assertEqual(payload["dxcc"]["name"], "Georgia")
-        self.assertIsNone(payload["locator"])
+        self.assertEqual(payload["locator"], "LN41OX")
         self.assertIsNotNone(payload["bearing_deg"])
         self.assertIsNotNone(payload["distance_km"])
+
+    def test_lookup_without_grid_keeps_locator_explicitly_unknown(self):
+        entity = parse_qrz_lookup_xml(LOOKUP_4L5O_XML.replace("<grid>LN41ox</grid>", ""))
+        self.assertIsNotNone(entity)
+        candidate = _candidate("4L5O")
+
+        attach_dxcc_and_bearing(
+            [candidate], qth_latlon=QTH, dxcc_fallback=lambda _call: entity
+        )
+
+        self.assertIsNone(candidate_to_dict(candidate)["locator"])
 
     def test_extended_prefix_prefers_longest_assigned_block(self):
         # EG8 je Kanarske ostrovy, zatimco obecne EG patri Spanelsku.

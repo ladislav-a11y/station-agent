@@ -146,7 +146,16 @@ def parse_qrz_lookup_xml(xml_text: str) -> DXCCEntity | None:
         cq_zone = 0
 
     call = (_find_text(callsign_elem, "call") or "").strip().upper()
-    return DXCCEntity(name=country, prefix=call, continent="", latitude=lat, longitude=lon, cq_zone=cq_zone)
+    grid = (_find_text(callsign_elem, "grid") or "").strip().upper() or None
+    return DXCCEntity(
+        name=country,
+        prefix=call,
+        continent="",
+        latitude=lat,
+        longitude=lon,
+        cq_zone=cq_zone,
+        locator=grid,
+    )
 
 
 class QRZClient:
