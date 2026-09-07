@@ -20,6 +20,7 @@ from station_agent.country_lookup import CountryLookup
 from station_agent.db import Database
 from station_agent.diagnostics import run_live_diagnostics
 from station_agent.log4om import Log4OMBridge
+from station_agent.log4om_lookup import Log4OMQSOChecker
 from station_agent.modes import SUPPORTED_MODES
 from station_agent.rig import create_rig_control
 from station_agent.web.server import create_server
@@ -171,7 +172,14 @@ def build_app_state(config: AppConfig) -> AppState:
             port=config.log4om.port,
             station_callsign=config.station.callsign,
         )
-    app_state = AppState(config, db, rig, aggregator, log4om_bridge=log4om_bridge)
+    app_state = AppState(
+        config,
+        db,
+        rig,
+        aggregator,
+        log4om_bridge=log4om_bridge,
+        log4om_checker=Log4OMQSOChecker(config.log4om_lookup.path),
+    )
     if config.rig.mode == "live":
         try:
             app_state.sync_rig_state_from_hardware()

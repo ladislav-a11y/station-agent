@@ -74,6 +74,7 @@ def _build_status(app_state: AppState) -> dict:
             getattr(app_state.propagation, "last_error", None)
             if app_state.propagation else None
         )
+        log4om_result = app_state.log4om_verification
         return {
             "rig": rig_state_to_dict(app_state.current_rig_state),
             "autotune": {
@@ -100,6 +101,20 @@ def _build_status(app_state: AppState) -> dict:
                 "qth_locator": propagation.qth_locator if propagation else None,
                 "band_quality": propagation.band_quality if propagation else {},
                 "explanation": propagation.explanation if propagation else None,
+            },
+            "log4om_verification": {
+                "configured": app_state.log4om_checker is not None,
+                "verified": bool(log4om_result and log4om_result.verified),
+                "status": log4om_result.status.value if log4om_result else "pending",
+                "diagnostic": (
+                    log4om_result.diagnostic
+                    if log4om_result
+                    else "Ověření databáze Log4OM2 zatím neproběhlo."
+                ),
+                "autotune_blocked": bool(
+                    app_state.log4om_checker is not None
+                    and (log4om_result is None or not log4om_result.verified)
+                ),
             },
             "last_decision": decision_to_dict(app_state.last_decision),
             "sources": app_state.aggregator.source_status(),

@@ -197,6 +197,13 @@ se pro běžnou shodu nepoužívá. Výsledek rozlišuje nalezenou a nenalezenou
 ověřenou shodu od nedostupného, nečitelného nebo neznámého databázového
 souboru a vždy obsahuje srozumitelnou diagnostiku.
 
+Při každém sestavení kandidátů Station Agent tímto read-only rozhraním ověří
+jejich přesnou trojici callsign, normalizovaný mód a hlavní frekvenci. Ověřená
+shoda se ze seznamu odstraní bez časového omezení; jiný mód nebo frekvence
+zůstávají použitelné. Nedostupná, nečitelná nebo neznámá databáze se v GUI
+zobrazí jako neověřená se svou diagnostikou a AUTO TUNE zůstane bezpečně
+zablokované. Lokální QSO historie, ruční zápis a UDP prefill tím nejsou měněny.
+
 ### Diagnostika přístupu
 
 Po nastavení endpointů lze před běžným startem spustit samostatnou kontrolu:

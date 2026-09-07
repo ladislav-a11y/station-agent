@@ -288,6 +288,20 @@ function renderSourcesStatus(status) {
     .join(" ");
 }
 
+function renderLog4OMStatus(status) {
+  const el = document.getElementById("log4om-status");
+  const verification = status.log4om_verification || {};
+  if (!verification.configured) {
+    el.textContent = "";
+    return;
+  }
+  if (verification.verified) {
+    el.textContent = `Log4OM2: ověřeno -- ${verification.diagnostic}`;
+    return;
+  }
+  el.textContent = `Log4OM2: neověřeno -- ${verification.diagnostic} AUTO TUNE je zablokováno.`;
+}
+
 function renderDecision(status) {
   const el = document.getElementById("autotune-decision");
   const d = status.last_decision;
@@ -350,6 +364,7 @@ async function refreshStatus() {
     const status = await res.json();
     renderRigStatus(status);
     renderSourcesStatus(status);
+    renderLog4OMStatus(status);
     renderPropagation(status);
     renderDecision(status);
     renderAutotuneState(status);

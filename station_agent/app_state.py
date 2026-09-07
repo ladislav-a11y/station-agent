@@ -13,6 +13,11 @@ from station_agent.autotune import AutoTuneEngine, TuneDecision, apply_decision
 from station_agent.config import AppConfig
 from station_agent.db import Database
 from station_agent.log4om import Log4OMBridge
+from station_agent.log4om_lookup import (
+    Log4OMQSOChecker,
+    QSOVerificationResult,
+    QSOVerificationStatus,
+)
 from station_agent.models import Candidate, RigState
 from station_agent.notifications import BandOpeningTracker
 from station_agent.propagation import PropagationService
@@ -31,12 +36,15 @@ class AppState:
         rig: RigControl,
         aggregator: Aggregator,
         log4om_bridge: Log4OMBridge | None = None,
+        log4om_checker: Log4OMQSOChecker | None = None,
     ):
         self.config = config
         self.db = db
         self.rig = rig
         self.aggregator = aggregator
         self.log4om_bridge = log4om_bridge
+        self.log4om_checker = log4om_checker
+        self.log4om_verification: QSOVerificationResult | None = None
         self.propagation = PropagationService(
             config.station.qth_locator, config.propagation.refresh_seconds,
             kp_url=config.propagation.kp_url, sfi_url=config.propagation.sfi_url,
@@ -82,6 +90,7 @@ class AppState:
                 c for c in all_candidates
                 if c.band in self.config.bands and c.mode in self.config.modes
             ]
+            candidates = self._filter_log4om_candidates(candidates)
             self.latest_candidates = candidates
             self._sync_current_score(candidates, all_candidates, now=now, propagation=context)
             if context is None:
@@ -107,6 +116,38 @@ class AppState:
                 )
             self._check_band_openings(all_candidates, now=now)
             return candidates
+
+    def _filter_log4om_candidates(self, candidates: list[Candidate]) -> list[Candidate]:
+        """Odstraní pouze přesné, ověřené shody z externí historie.
+
+        Chyba externí databáze nesmí být zaměněna za ověřenou absenci. V tom
+        případě kandidáty ponecháme pro diagnostiku a ruční práci, ale stav
+        uložený zde uzavře bezpečnostní bránu automatického ladění.
+        """
+        checker = self.log4om_checker
+        if checker is None:
+            self.log4om_verification = None
+            return candidates
+
+        if not candidates:
+            self.log4om_verification = checker.check("", "", 0)
+            return candidates
+
+        usable: list[Candidate] = []
+        last_verified: QSOVerificationResult | None = None
+        first_failure: QSOVerificationResult | None = None
+        for candidate in candidates:
+            result = checker.check(candidate.callsign, candidate.mode, candidate.freq_hz)
+            if not result.verified:
+                first_failure = first_failure or result
+                usable.append(candidate)
+                continue
+            last_verified = result
+            if result.status is not QSOVerificationStatus.MATCH:
+                usable.append(candidate)
+
+        self.log4om_verification = first_failure or last_verified
+        return usable
 
     def _sync_current_score(
         self,
@@ -201,6 +242,20 @@ class AppState:
     def run_autotune_cycle(self, now: float | None = None) -> TuneDecision:
         now = time.time() if now is None else now
         with self.lock:
+            verification = self.log4om_verification
+            if self.log4om_checker is not None and (
+                verification is None or not verification.verified
+            ):
+                diagnostic = (
+                    verification.diagnostic
+                    if verification is not None
+                    else "Ověření databáze Log4OM2 zatím neproběhlo."
+                )
+                decision = TuneDecision(
+                    "NONE", None, f"AUTO TUNE bezpečně zablokováno: {diagnostic}"
+                )
+                self.last_decision = decision
+                return decision
             decision = self.autotune_engine.decide(
                 self.latest_candidates,
                 self.current_rig_state,
