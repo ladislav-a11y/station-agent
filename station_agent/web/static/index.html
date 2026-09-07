@@ -42,15 +42,15 @@
   <h2>AUTO TUNE</h2>
   <div class="autotune-mode-box" aria-label="Režim automatického ladění">
     <span class="autotune-mode-label">Režim:</span>
-    <div class="rocker-switch">
-      <label>
-        <input type="radio" name="autotune-mode" id="at-enabled" />
-        <span>AUTO TUNE</span>
-      </label>
-      <label>
-        <input type="radio" name="autotune-mode" id="at-hold" />
-        <span>HOLD</span>
-      </label>
+    <div class="autotune-mode-controls">
+      <div class="autotune-mode-control" id="at-enabled-control">
+        <span class="autotune-mode-name">AUTO TUNE</span>
+        <button type="button" id="at-enabled-ok">OK</button>
+      </div>
+      <div class="autotune-mode-control" id="at-hold-control">
+        <span class="autotune-mode-name">HOLD</span>
+        <button type="button" id="at-hold-ok">OK</button>
+      </div>
     </div>
     <span id="at-hold-countdown" class="hold-countdown"></span>
   </div>

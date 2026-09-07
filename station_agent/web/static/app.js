@@ -301,15 +301,20 @@ function fillAutotuneForm(status) {
 }
 
 // AUTO TUNE a HOLD jsou vzájemně výlučné (backend to vynucuje taky, viz
-// POST /api/autotune) -- checkboxy i odpočet AUTO TUNE se synchronizují se
+// POST /api/autotune) -- ovládací prvky i odpočet AUTO TUNE se synchronizují se
 // stavem backendu při každém refreshi statusu i hned po NALADIT/uložení
 // formuláře, aby GUI nikdy neukazovalo stav, který neodpovídá backendu
 // (viz BUG P4/P5 -- ruční NALADIT vypíná AUTO TUNE a zapíná HOLD).
 let autotuneCountdownBase = null; // {remainingSeconds, capturedAtMs}
+let autotuneModeState = { enabled: false, hold: false };
 
 function renderAutotuneState(status) {
-  document.getElementById("at-enabled").checked = status.autotune.enabled;
-  document.getElementById("at-hold").checked = status.autotune.hold;
+  autotuneModeState = {
+    enabled: status.autotune.enabled,
+    hold: status.autotune.hold,
+  };
+  document.getElementById("at-enabled-control").classList.toggle("active", autotuneModeState.enabled);
+  document.getElementById("at-hold-control").classList.toggle("active", autotuneModeState.hold);
   if (status.autotune.enabled && status.autotune.autotune_remaining_seconds != null) {
     autotuneCountdownBase = { remainingSeconds: status.autotune.autotune_remaining_seconds, capturedAtMs: Date.now() };
   } else {
@@ -320,14 +325,11 @@ function renderAutotuneState(status) {
 
 function renderHoldCountdown() {
   const el = document.getElementById("at-hold-countdown");
-  if (document.getElementById("at-hold").checked) {
+  if (autotuneModeState.hold) {
     el.textContent = "HOLD aktivní";
     return;
   }
-  if (!document.getElementById("at-enabled").checked) {
-    // Ani AUTO TUNE, ani HOLD nejsou zapnuté -- rocker switch samotný to
-    // nemusí být na první pohled zřejmé (žádný přepínač nemá "checked"),
-    // takže stav musí být vyjádřen i textem.
+  if (!autotuneModeState.enabled) {
     el.textContent = "AUTO TUNE vypnuto";
     return;
   }
@@ -452,13 +454,14 @@ async function refreshQsoHistory() {
   } catch (err) { console.error("refreshQsoHistory selhalo", err); }
 }
 
-async function updateAutotune() {
+async function updateAutotune(modeOverride = {}) {
   const payload = {
-    enabled: document.getElementById("at-enabled").checked,
-    hold: document.getElementById("at-hold").checked,
+    enabled: autotuneModeState.enabled,
+    hold: autotuneModeState.hold,
     min_score: Number(document.getElementById("at-min-score").value),
     min_hold_seconds: Number(document.getElementById("at-min-hold").value),
     min_score_delta: Number(document.getElementById("at-min-delta").value),
+    ...modeOverride,
   };
   const res = await fetch("/api/autotune", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -472,26 +475,19 @@ document.getElementById("autotune-form").addEventListener("submit", async (ev) =
   await updateAutotune();
 });
 
-// Klient navíc vynucuje výlučnost hned při klikání (backend viz
-// web/server.py POST /api/autotune je vynucuje taky, defense-in-depth) --
-// zaškrtnutí jednoho přepínače hned v prohlížeči odškrtne ten druhý, ať
-// operátor nikdy neodešle formulář s oběma zapnutými.
-document.getElementById("at-enabled").addEventListener("change", (ev) => {
-  if (!ev.target.checked) return;
-  document.getElementById("at-hold").checked = false;
+// Každé OK aktivuje zvolený režim a současně vypne druhý. Backend stejnou
+// výlučnost vynucuje také (web/server.py POST /api/autotune).
+document.getElementById("at-enabled-ok").addEventListener("click", () => {
   // Návrat k automatickému režimu zároveň obnoví výchozí rozložení
   // seznamu: ruční výběr ani jeho rozbalené bodové detaily už nejsou aktivní.
   clearCandidateSelection();
-  updateAutotune();
+  updateAutotune({ enabled: true, hold: false });
 });
-document.getElementById("at-hold").addEventListener("change", (ev) => {
-  if (!ev.target.checked) return;
-  document.getElementById("at-enabled").checked = false;
-  renderHoldCountdown();
-  updateAutotune();
+document.getElementById("at-hold-ok").addEventListener("click", () => {
+  updateAutotune({ enabled: false, hold: true });
 });
 for (const id of ["at-min-score", "at-min-hold", "at-min-delta"]) {
-  document.getElementById(id).addEventListener("change", updateAutotune);
+  document.getElementById(id).addEventListener("change", () => updateAutotune());
 }
 
 // Ukončit: zastaví polling i webový server a vyčistí obsah databáze (viz

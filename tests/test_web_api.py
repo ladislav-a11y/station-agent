@@ -102,16 +102,21 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('fetch("/api/shutdown"', script)
         self.assertIn("window.confirm(", script)
 
-    def test_autotune_and_hold_use_immediate_rocker_and_reset_manual_selection(self):
+    def test_autotune_and_hold_use_labels_with_ok_controls_and_reset_manual_selection(self):
         _, _, html = self._get("/")
         page = html.decode("utf-8")
-        self.assertIn('type="radio" name="autotune-mode" id="at-enabled"', page)
-        self.assertIn('type="radio" name="autotune-mode" id="at-hold"', page)
+        self.assertIn('<span class="autotune-mode-name">AUTO TUNE</span>', page)
+        self.assertIn('<button type="button" id="at-enabled-ok">OK</button>', page)
+        self.assertIn('<span class="autotune-mode-name">HOLD</span>', page)
+        self.assertIn('<button type="button" id="at-hold-ok">OK</button>', page)
         self.assertIn('class="autotune-mode-box"', page)
 
         _, _, javascript = self._get("/app.js")
         script = javascript.decode("utf-8")
-        self.assertIn('document.getElementById("at-enabled").addEventListener("change"', script)
+        self.assertIn('document.getElementById("at-enabled-ok").addEventListener("click"', script)
+        self.assertIn('updateAutotune({ enabled: true, hold: false });', script)
+        self.assertIn('document.getElementById("at-hold-ok").addEventListener("click"', script)
+        self.assertIn('updateAutotune({ enabled: false, hold: true });', script)
         self.assertIn("clearCandidateSelection();", script)
         self.assertIn("updateAutotune();", script)
 
