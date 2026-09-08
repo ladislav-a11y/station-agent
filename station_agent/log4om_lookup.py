@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 from contextlib import closing
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -22,6 +23,7 @@ class QSOVerificationStatus(str, Enum):
     UNREADABLE = "unreadable"
     UNKNOWN_DATABASE = "unknown_database"
     INVALID_INPUT = "invalid_input"
+    LOGIN_ERROR = "login_error"
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,62 @@ class QSOVerificationResult:
         if not self.verified:
             return None
         return self.status is QSOVerificationStatus.MATCH
+
+
+class _SMBLoginError(OSError):
+    """Interní chyba SMB přihlášení; text z Windows se nikdy nepropaguje."""
+
+
+def _unc_share(path: str) -> str | None:
+    normalized = path.replace("/", "\\")
+    if not normalized.startswith("\\\\"):
+        return None
+    parts = [part for part in normalized[2:].split("\\") if part]
+    return f"\\\\{parts[0]}\\{parts[1]}" if len(parts) >= 2 else None
+
+
+class _WindowsSMBSession:
+    """Dočasná deviceless SMB relace pro explicitně zadanou identitu."""
+
+    def __init__(self, path: str, username: str, password: str):
+        self.share = _unc_share(path)
+        self.username = username
+        self.password = password
+        self._connected = False
+
+    def __enter__(self):
+        if not self.username:
+            return self
+        if sys.platform != "win32" or not self.share:
+            raise _SMBLoginError()
+        import ctypes
+        from ctypes import wintypes
+
+        class NETRESOURCEW(ctypes.Structure):
+            _fields_ = [
+                ("dwScope", wintypes.DWORD), ("dwType", wintypes.DWORD),
+                ("dwDisplayType", wintypes.DWORD), ("dwUsage", wintypes.DWORD),
+                ("lpLocalName", wintypes.LPWSTR), ("lpRemoteName", wintypes.LPWSTR),
+                ("lpComment", wintypes.LPWSTR), ("lpProvider", wintypes.LPWSTR),
+            ]
+
+        resource = NETRESOURCEW()
+        resource.dwType = 1  # RESOURCETYPE_DISK
+        resource.lpRemoteName = self.share
+        result = ctypes.windll.mpr.WNetAddConnection2W(
+            ctypes.byref(resource), self.password, self.username, 0
+        )
+        if result != 0:
+            raise _SMBLoginError()
+        self._connected = True
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        if self._connected:
+            import ctypes
+            ctypes.windll.mpr.WNetCancelConnection2W(self.share, 0, False)
+        self.password = ""
+        return False
 
 
 def _readonly_uri(path: str) -> str:
@@ -73,8 +131,10 @@ def _khz_to_hz(value: object) -> int | None:
 class Log4OMQSOChecker:
     """Kontroluje tabulku ``Log`` bez zápisu a bez použití přijímací frekvence."""
 
-    def __init__(self, database_path: str):
+    def __init__(self, database_path: str, username: str = "", password: str = ""):
         self.database_path = database_path
+        self._username = username
+        self._password = password
 
     def check(self, callsign: str, mode: str, freq_hz: int) -> QSOVerificationResult:
         normalized_call = (callsign or "").strip().upper()
@@ -87,39 +147,41 @@ class Log4OMQSOChecker:
                 "Ověření nelze provést: frekvence není platné celé číslo v Hz.",
             )
 
-        if not os.path.exists(self.database_path):
-            return QSOVerificationResult(
-                QSOVerificationStatus.UNAVAILABLE,
-                "Databáze Log4OM2 není dostupná na nakonfigurované cestě.",
-            )
-        if not os.path.isfile(self.database_path) or not os.access(self.database_path, os.R_OK):
-            return QSOVerificationResult(
-                QSOVerificationStatus.UNREADABLE,
-                "Nakonfigurovaná cesta není čitelný databázový soubor.",
-            )
-
         try:
-            with closing(sqlite3.connect(_readonly_uri(self.database_path), uri=True)) as connection:
-                connection.execute("PRAGMA query_only=ON")
-                columns = {
-                    str(row[1]).lower()
-                    for row in connection.execute('PRAGMA table_info("Log")')
-                }
-                if not {"callsign", "mode", "freq"}.issubset(columns):
+            with _WindowsSMBSession(self.database_path, self._username, self._password):
+                if not os.path.exists(self.database_path):
                     return QSOVerificationResult(
-                        QSOVerificationStatus.UNKNOWN_DATABASE,
-                        "Databáze nemá očekávanou tabulku Log se sloupci callsign, mode a freq.",
+                        QSOVerificationStatus.UNAVAILABLE,
+                        "Databáze Log4OM2 není dostupná na nakonfigurované cestě.",
                     )
+                if not os.path.isfile(self.database_path) or not os.access(self.database_path, os.R_OK):
+                    return QSOVerificationResult(
+                        QSOVerificationStatus.UNREADABLE,
+                        "Nakonfigurovaná cesta není čitelný databázový soubor.",
+                    )
+                with closing(sqlite3.connect(_readonly_uri(self.database_path), uri=True)) as connection:
+                    connection.execute("PRAGMA query_only=ON")
+                    columns = {str(row[1]).lower() for row in connection.execute('PRAGMA table_info("Log")')}
+                    if not {"callsign", "mode", "freq"}.issubset(columns):
+                        return QSOVerificationResult(
+                            QSOVerificationStatus.UNKNOWN_DATABASE,
+                            "Databáze nemá očekávanou tabulku Log se sloupci callsign, mode a freq.",
+                        )
 
-                rows = connection.execute(
-                    'SELECT mode, freq FROM "Log" WHERE UPPER(TRIM(callsign)) = ?',
-                    (normalized_call,),
-                )
-                matched = any(
-                    normalize_mode(str(row_mode or "")) == normalized_mode
-                    and _khz_to_hz(row_freq) == requested_hz
-                    for row_mode, row_freq in rows
-                )
+                    rows = connection.execute(
+                        'SELECT mode, freq FROM "Log" WHERE UPPER(TRIM(callsign)) = ?',
+                        (normalized_call,),
+                    )
+                    matched = any(
+                        normalize_mode(str(row_mode or "")) == normalized_mode
+                        and _khz_to_hz(row_freq) == requested_hz
+                        for row_mode, row_freq in rows
+                    )
+        except _SMBLoginError:
+            return QSOVerificationResult(
+                QSOVerificationStatus.LOGIN_ERROR,
+                "Přihlášení k umístění databáze Log4OM2 se nezdařilo.",
+            )
         except sqlite3.DatabaseError:
             return QSOVerificationResult(
                 QSOVerificationStatus.UNREADABLE,

@@ -141,11 +141,13 @@ log4om:
   # pouze adresaci a lokální síťovou cestu, nikoli příjem běžící aplikací.
 
 # Samostatný read-only zdroj pro ověření, zda už přesné QSO existuje v tabulce
-# Log. Nezapisuje do databáze ani nemění její schéma. UNC cesta používá aktuální
-# Windows přihlášení; heslo ani uživatelské jméno do tohoto souboru nepatří.
+# Log. Nezapisuje do databáze ani nemění její schéma. Skutečné údaje patří jen
+# do lokálního ignorovaného config.yaml; prázdné hodnoty použijí Windows login.
 log4om_lookup:
   enabled: false
   path: ""
+  username: ""
+  password: ""
 
 web:
   # MUSÍ zůstat loopback adresa -- server.py to i tvrdě vynucuje v kódu.

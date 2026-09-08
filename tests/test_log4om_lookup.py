@@ -9,6 +9,8 @@ from station_agent.log4om_lookup import (
     Log4OMQSOChecker,
     QSOVerificationStatus,
     _readonly_uri,
+    _SMBLoginError,
+    _WindowsSMBSession,
 )
 
 
@@ -122,6 +124,31 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
         self.assertEqual(result.status, QSOVerificationStatus.UNREADABLE)
         self.assertFalse(result.verified)
         self.assertIn("read-only", result.diagnostic)
+
+    def test_blank_credentials_use_current_identity_without_smb_login(self):
+        with patch("station_agent.log4om_lookup.sys.platform", "not-windows"):
+            result = Log4OMQSOChecker(self.db_path, "", "").check("OK1ABC", "SSB", 14_195_125)
+        self.assertEqual(result.status, QSOVerificationStatus.MATCH)
+
+    def test_explicit_credentials_are_used_for_unc_session(self):
+        database_path = r"\\server\share\log.sqlite"
+        checker = Log4OMQSOChecker(database_path, "DOMAIN\\user", "secret")
+        with patch("station_agent.log4om_lookup._WindowsSMBSession") as session_type, patch(
+            "station_agent.log4om_lookup.os.path.exists", return_value=False
+        ):
+            result = checker.check("OK1ABC", "SSB", 14_195_125)
+        session_type.assert_called_once_with(database_path, "DOMAIN\\user", "secret")
+        self.assertEqual(result.status, QSOVerificationStatus.UNAVAILABLE)
+
+    def test_login_failure_has_distinct_redacted_status(self):
+        checker = Log4OMQSOChecker(r"\\server\share\log.sqlite", "private-user", "top-secret")
+        with patch.object(_WindowsSMBSession, "__enter__", side_effect=_SMBLoginError("top-secret")):
+            result = checker.check("OK1ABC", "SSB", 14_195_125)
+        self.assertEqual(result.status, QSOVerificationStatus.LOGIN_ERROR)
+        self.assertFalse(result.verified)
+        self.assertIsNone(result.exists)
+        self.assertNotIn("private-user", result.diagnostic)
+        self.assertNotIn("top-secret", result.diagnostic)
 
 
 if __name__ == "__main__":

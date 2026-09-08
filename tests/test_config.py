@@ -9,6 +9,7 @@ from station_agent.config import (
     NotificationsConfig,
     PollingConfig,
     QRZConfig,
+    Log4OMLookupConfig,
     StationConfig,
     WebConfig,
     _MiniYamlParser,
@@ -155,6 +156,36 @@ class LoadConfigTests(unittest.TestCase):
                     "path": r"\\user:secret@server\share\log.sqlite",
                 }
             })
+
+    def test_log4om_lookup_accepts_explicit_credentials_as_a_pair(self):
+        config = config_from_dict({"log4om_lookup": {
+            "enabled": True, "path": r"\\server\share\log.sqlite",
+            "username": r"DOMAIN\operator", "password": "top-secret",
+        }})
+        self.assertEqual(config.log4om_lookup.username, r"DOMAIN\operator")
+        self.assertEqual(config.log4om_lookup.password, "top-secret")
+
+    def test_log4om_lookup_rejects_partial_credentials(self):
+        with self.assertRaisesRegex(ValueError, "společně"):
+            config_from_dict({"log4om_lookup": {
+                "enabled": True, "path": r"\\server\share\log.sqlite",
+                "username": "operator", "password": "",
+            }})
+
+    def test_log4om_lookup_repr_redacts_username_and_password(self):
+        config = Log4OMLookupConfig(
+            enabled=True, path=r"\\server\share\log.sqlite",
+            username="private-user", password="top-secret",
+        )
+        rendered = repr(config)
+        self.assertNotIn(r"\\server\share\log.sqlite", rendered)
+        self.assertNotIn("private-user", rendered)
+        self.assertNotIn("top-secret", rendered)
+        self.assertIn("***", rendered)
+        serialized = config.redacted_dict()
+        self.assertNotIn("private-user", str(serialized))
+        self.assertNotIn("top-secret", str(serialized))
+        self.assertNotIn("server", str(serialized))
 
     def test_missing_config_file_raises_actionable_error(self):
         # Fresh checkout nemá commitnutý config.yaml (viz .gitignore) -- bez

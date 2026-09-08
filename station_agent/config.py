@@ -307,6 +307,34 @@ class Log4OMConfig:
 class Log4OMLookupConfig:
     enabled: bool = False
     path: str = ""
+    username: str = ""
+    password: str = field(default="", repr=False)
+
+    def __post_init__(self) -> None:
+        self.path = str(self.path or "").strip()
+        self.username = str(self.username or "").strip()
+        self.password = str(self.password or "")
+        if bool(self.username) != bool(self.password):
+            raise ValueError(
+                "log4om_lookup.username a log4om_lookup.password musí být vyplněny společně"
+            )
+
+    def __repr__(self) -> str:
+        path_marker = "***" if self.path else ""
+        password_marker = "***" if self.password else ""
+        return (
+            f"Log4OMLookupConfig(enabled={self.enabled!r}, path={path_marker!r}, "
+            f"username={'***' if self.username else ''!r}, password={password_marker!r})"
+        )
+
+    def redacted_dict(self) -> dict[str, object]:
+        """Bezpečný tvar pro diagnostiku a serializaci do řídicích systémů."""
+        return {
+            "enabled": self.enabled,
+            "path": "***" if self.path else "",
+            "username": "***" if self.username else "",
+            "password": "***" if self.password else "",
+        }
 
 
 @dataclass
@@ -489,6 +517,8 @@ def config_from_dict(raw: dict) -> AppConfig:
     log4om_lookup = Log4OMLookupConfig(
         enabled=bool(log4om_lookup_raw.get("enabled", False)),
         path=str(log4om_lookup_raw.get("path") or "").strip(),
+        username=str(log4om_lookup_raw.get("username") or "").strip(),
+        password=str(log4om_lookup_raw.get("password") or ""),
     )
     if log4om_lookup.enabled and not log4om_lookup.path:
         raise ValueError("log4om_lookup.path musí být vyplněná, když je lookup zapnutý")

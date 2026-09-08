@@ -190,14 +190,18 @@ soukromou cestu:
 log4om_lookup:
   enabled: true
   path: "\\\\server\\share\\Log4OM.sqlite"
+  username: ""
+  password: ""
 ```
 
-Lokální i UNC cesta se otevírá pod aktuálním Windows přihlášením. SQLite URI
-neumí předat síťové jméno a heslo. Pokud share vyžaduje jinou identitu, musí ji
-správce připojit mimo Station Agent, například spravovanou SMB relací s údajem
-uloženým ve Windows Credential Manageru. Přihlašovací údaje ani mapovací příkazy
-nepatří do `config.yaml`, argumentů procesu nebo logů. Chyby přístupu vracejí
-obecnou diagnostiku bez cesty, údajů ovladače a osobních QSO dat.
+Lokální i UNC cesta se při prázdném `username` a `password` otevírá pod
+aktuálním Windows přihlášením. UNC share může volitelně použít explicitní pár
+údajů z lokálního `config.yaml`, který Git ignoruje. Údaje se použijí jen pro
+dočasnou deviceless SMB relaci a nesmějí se psát do sdíleného example configu,
+argumentů procesu ani logů. Jméno i heslo musí být vyplněny společně. Chyba
+přihlášení má samostatný neověřený stav `login_error`; diagnostika ani
+serializovaný config neobsahují cestu, uživatelské jméno, heslo, text chyby
+ovladače ani osobní QSO data.
 
 Kontrakt byl 8. září 2026 ověřen proti skutečné podporované Log4OM2 databázi
 na SMB share pod aktuálním Windows přihlášením. Jde o SQLite databázi s
