@@ -156,6 +156,7 @@ async function postFilters() {
     const payload = {
       bands: BAND_ORDER.filter((b) => state.bands.has(b)),
       modes: MODE_ORDER.filter((m) => state.modes.has(m)),
+      exclude_worked_qsos: document.getElementById("exclude-worked-qsos").checked,
     };
     await fetch("/api/filters", {
       method: "POST",
@@ -295,6 +296,10 @@ function renderLog4OMStatus(status) {
     el.textContent = "";
     return;
   }
+  if (!verification.filter_enabled) {
+    el.textContent = "Log4OM2: filtrování již provedených QSO je vypnuto.";
+    return;
+  }
   if (verification.verified) {
     el.textContent = `Log4OM2: ověřeno -- ${verification.diagnostic}`;
     return;
@@ -368,6 +373,10 @@ async function refreshStatus() {
     renderPropagation(status);
     renderDecision(status);
     renderAutotuneState(status);
+    const log4omFilter = document.getElementById("exclude-worked-qsos");
+    log4omFilter.checked = Boolean(status.log4om_verification.filter_enabled);
+    log4omFilter.disabled = !status.log4om_verification.configured;
+    document.getElementById("log4om-filter-group").hidden = !status.log4om_verification.configured;
     if (!statusLoaded) {
       state.modes = new Set(status.modes);
       state.bands = new Set(status.bands);
@@ -428,6 +437,12 @@ document.getElementById("qso-button").addEventListener("click", async () => {
   });
   renderTuneResult(res.ok ? `QSO ${candidate.callsign} bylo zapsáno do lokální historie.` : "Zápis QSO selhal.", !res.ok);
   if (res.ok) refreshQsoHistory();
+});
+
+document.getElementById("exclude-worked-qsos").addEventListener("change", async () => {
+  await postFilters();
+  await refreshCandidates();
+  await refreshStatus();
 });
 
 function formatTimestamp(ts) {

@@ -23,6 +23,7 @@ from station_agent.app_state import AppState, PollingLoop
 from station_agent.config import AppConfig, NotificationsConfig, WebConfig
 from station_agent.db import Database
 from station_agent.log4om import Log4OMBridge
+from station_agent.log4om_lookup import QSOVerificationResult, QSOVerificationStatus
 from station_agent.models import RigState
 from station_agent.notifications import BandOpeningTracker
 from station_agent.propagation import PropagationContext
@@ -82,6 +83,13 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("text/html", content_type)
         self.assertIn(b"Station Agent", body)
+
+    def test_gui_contains_optional_log4om_candidate_filter(self):
+        status, _, body = self._get("/")
+        self.assertEqual(status, 200)
+        page = body.decode("utf-8")
+        self.assertIn('id="exclude-worked-qsos"', page)
+        self.assertIn("Skrýt přesná QSO potvrzená v Log4OM2", page)
 
     def test_static_assets_served(self):
         status, content_type, body = self._get("/app.js")
@@ -470,6 +478,60 @@ if (JSON.stringify(calls) !== JSON.stringify(expected)) {
             self.assertEqual(refreshed["modes"], allowed_modes)
         finally:
             self._post_json("/api/filters", {"bands": original_bands, "modes": original_modes})
+
+    def test_log4om_filter_toggle_only_changes_candidate_filtering(self):
+        class ExactMatchChecker:
+            def __init__(self):
+                self.calls = []
+
+            def check(self, callsign, mode, freq_hz):
+                self.calls.append((callsign, mode, freq_hz))
+                return QSOVerificationResult(
+                    QSOVerificationStatus.MATCH, "ověřená přesná shoda"
+                )
+
+        checker = ExactMatchChecker()
+        original_checker = self.app_state.log4om_checker
+        original_filter = self.app_state.log4om_filter_enabled
+        autotune_before = (
+            self.app_state.config.autotune.enabled,
+            self.app_state.config.autotune.hold,
+            self.app_state.config.autotune.min_hold_seconds,
+            self.app_state.config.autotune.min_score_delta,
+            self.app_state.autotune_engine.min_score,
+        )
+        try:
+            self.app_state.log4om_checker = checker
+
+            _, disabled = self._post_json(
+                "/api/filters", {"exclude_worked_qsos": False}
+            )
+            _, _, body = self._get("/api/candidates")
+            self.assertGreater(len(json.loads(body)["candidates"]), 0)
+            self.assertEqual(checker.calls, [])
+            self.assertFalse(disabled["log4om_verification"]["filter_enabled"])
+
+            _, enabled = self._post_json(
+                "/api/filters", {"exclude_worked_qsos": True}
+            )
+            _, _, body = self._get("/api/candidates")
+            self.assertEqual(json.loads(body)["candidates"], [])
+            self.assertGreater(len(checker.calls), 0)
+            self.assertTrue(enabled["log4om_verification"]["filter_enabled"])
+            self.assertEqual(
+                autotune_before,
+                (
+                    self.app_state.config.autotune.enabled,
+                    self.app_state.config.autotune.hold,
+                    self.app_state.config.autotune.min_hold_seconds,
+                    self.app_state.config.autotune.min_score_delta,
+                    self.app_state.autotune_engine.min_score,
+                ),
+            )
+        finally:
+            self.app_state.log4om_checker = original_checker
+            self.app_state.log4om_filter_enabled = original_filter
+            self.app_state.log4om_verification = None
 
     def test_post_filters_ignores_unknown_values(self):
         original_bands = list(self.app_state.config.bands)

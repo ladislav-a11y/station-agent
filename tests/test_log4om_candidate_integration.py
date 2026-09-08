@@ -23,8 +23,10 @@ def candidate(callsign="OK1ABC", mode="SSB", freq_hz=14_195_000):
 class MappingChecker:
     def __init__(self, results):
         self.results = results
+        self.calls = []
 
     def check(self, callsign, mode, freq_hz):
+        self.calls.append((callsign, mode, freq_hz))
         return self.results.get(
             (callsign, mode, freq_hz),
             QSOVerificationResult(QSOVerificationStatus.NO_MATCH, "ověřená neshoda"),
@@ -44,6 +46,20 @@ def build_state(candidates, checker):
 
 
 class Log4OMCandidateIntegrationTests(unittest.TestCase):
+    def test_disabled_filter_does_not_use_database_and_keeps_every_candidate(self):
+        original = candidate()
+        checker = MappingChecker({
+            (original.callsign, original.mode, original.freq_hz): QSOVerificationResult(
+                QSOVerificationStatus.MATCH, "ověřená přesná shoda"
+            )
+        })
+        state = build_state([original], checker)
+        state.log4om_filter_enabled = False
+
+        self.assertEqual(state.refresh_candidates(now=100.0), [original])
+        self.assertEqual(checker.calls, [])
+        self.assertIsNone(state.log4om_verification)
+
     def test_exact_match_is_removed_but_other_mode_and_frequency_remain(self):
         exact = candidate()
         other_mode = candidate(mode="CW")
@@ -79,6 +95,25 @@ class Log4OMCandidateIntegrationTests(unittest.TestCase):
         self.assertFalse(status["autotune_blocked"])
         self.assertEqual(status["status"], "unavailable")
         self.assertEqual(status["diagnostic"], unavailable.diagnostic)
+
+    def test_failure_after_a_match_restores_the_complete_candidate_list(self):
+        matched = candidate(callsign="OK1AAA")
+        failed = candidate(callsign="OK1BBB")
+        checker = MappingChecker({
+            (matched.callsign, matched.mode, matched.freq_hz): QSOVerificationResult(
+                QSOVerificationStatus.MATCH, "ověřená přesná shoda"
+            ),
+            (failed.callsign, failed.mode, failed.freq_hz): QSOVerificationResult(
+                QSOVerificationStatus.LOGIN_ERROR,
+                "Přihlášení k umístění databáze Log4OM2 se nezdařilo.",
+            ),
+        })
+        state = build_state([matched, failed], checker)
+
+        self.assertEqual(state.refresh_candidates(now=100.0), [matched, failed])
+        self.assertEqual(
+            state.log4om_verification.status, QSOVerificationStatus.LOGIN_ERROR
+        )
 
     def test_verified_no_match_allows_existing_autotune_path(self):
         original = candidate()

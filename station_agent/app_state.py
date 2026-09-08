@@ -44,6 +44,10 @@ class AppState:
         self.aggregator = aggregator
         self.log4om_bridge = log4om_bridge
         self.log4om_checker = log4om_checker
+        # Konfigurace zpřístupňuje read-only zdroj; operátor může jeho použití
+        # pro seznam kandidátů kdykoli vypnout v GUI. Oddělený runtime stav je
+        # důležitý: vypnutý filtr nesmí databázi ani zkusit otevřít.
+        self.log4om_filter_enabled = log4om_checker is not None
         self.log4om_verification: QSOVerificationResult | None = None
         self.propagation = PropagationService(
             config.station.qth_locator, config.propagation.refresh_seconds,
@@ -121,11 +125,11 @@ class AppState:
         """Odstraní pouze přesné, ověřené shody z externí historie.
 
         Chyba externí databáze nesmí být zaměněna za ověřenou absenci. V tom
-        případě kandidáty ponecháme pro diagnostiku a ruční práci, ale stav
-        uložený zde uzavře bezpečnostní bránu automatického ladění.
+        případě kandidáty ponecháme a uložíme pouze diagnostický stav pro GUI;
+        automatické ladění pokračuje se svými původními pravidly.
         """
         checker = self.log4om_checker
-        if checker is None:
+        if checker is None or not self.log4om_filter_enabled:
             self.log4om_verification = None
             return candidates
 
@@ -135,18 +139,19 @@ class AppState:
 
         usable: list[Candidate] = []
         last_verified: QSOVerificationResult | None = None
-        first_failure: QSOVerificationResult | None = None
         for candidate in candidates:
             result = checker.check(candidate.callsign, candidate.mode, candidate.freq_hz)
             if not result.verified:
-                first_failure = first_failure or result
-                usable.append(candidate)
-                continue
+                # Výsledek filtru je atomický: při jediné chybě nelze vědět,
+                # zda dříve kontrolované shody reprezentují konzistentní
+                # snapshot. Proto se vrátí úplný původní seznam.
+                self.log4om_verification = result
+                return candidates
             last_verified = result
             if result.status is not QSOVerificationStatus.MATCH:
                 usable.append(candidate)
 
-        self.log4om_verification = first_failure or last_verified
+        self.log4om_verification = last_verified
         return usable
 
     def _sync_current_score(

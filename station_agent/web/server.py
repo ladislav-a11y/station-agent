@@ -104,6 +104,7 @@ def _build_status(app_state: AppState) -> dict:
             },
             "log4om_verification": {
                 "configured": app_state.log4om_checker is not None,
+                "filter_enabled": app_state.log4om_filter_enabled,
                 "verified": bool(log4om_result and log4om_result.verified),
                 "status": log4om_result.status.value if log4om_result else "pending",
                 "diagnostic": (
@@ -417,6 +418,14 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
                     if "modes" in payload:
                         modes = [m for m in payload["modes"] if m in SUPPORTED_MODES]
                         app_state.config.modes = modes
+                    if "exclude_worked_qsos" in payload:
+                        # Přepínač ovládá výhradně kandidátní filtr. Nemění
+                        # žádnou konfiguraci AUTO TUNE a bez checkeru se
+                        # nemůže tvářit jako aktivní.
+                        app_state.log4om_filter_enabled = bool(
+                            payload["exclude_worked_qsos"]
+                        ) and app_state.log4om_checker is not None
+                        app_state.log4om_verification = None
                     app_state.db.save_filter_preferences(
                         app_state.config.bands, app_state.config.modes
                     )
