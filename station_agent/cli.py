@@ -12,6 +12,7 @@ from station_agent.adapters.mock import MockAdapter
 from station_agent.adapters.pskreporter import PSKReporterAdapter
 from station_agent.adapters.qrz import QRZClient
 from station_agent.adapters.rbn import RBNAdapter
+from station_agent.adapters.telnet_source import DEFAULT_RECONNECT_STABLE_SECONDS
 from station_agent.aggregator import Aggregator
 from station_agent.app_state import AppState, PollingLoop
 from station_agent.bandplan import SUPPORTED_BANDS
@@ -46,6 +47,9 @@ def build_sources(config: AppConfig) -> list:
                 port=int(dxc.options.get("port", default_port)),
                 callsign=dxc.options.get("callsign", config.station.callsign),
                 source_name=source_name,
+                reconnect_stable_seconds=float(
+                    dxc.options.get("reconnect_stable_seconds", DEFAULT_RECONNECT_STABLE_SECONDS)
+                ),
             ))
     rbn = config.sources.get("rbn")
     if rbn and rbn.enabled:
@@ -54,6 +58,9 @@ def build_sources(config: AppConfig) -> list:
                 host=rbn.options.get("host", RBNAdapter.DEFAULT_HOST),
                 port=int(rbn.options.get("port", RBNAdapter.DEFAULT_PORT)),
                 callsign=rbn.options.get("callsign", config.station.callsign),
+                reconnect_stable_seconds=float(
+                    rbn.options.get("reconnect_stable_seconds", DEFAULT_RECONNECT_STABLE_SECONDS)
+                ),
             )
         )
     pskr = config.sources.get("pskreporter")

@@ -683,6 +683,36 @@ class MultipleDXClusterProviderTests(unittest.TestCase):
         self.assertEqual(len(sources), 5)
         self.assertEqual({source.name for source in sources}, set(named_sources))
 
+    def test_reconnect_stability_threshold_is_applied_per_source(self):
+        config = config_from_dict(
+            {
+                "station": {"callsign": "OK1ABC"},
+                "sources": {
+                    "mock": {"enabled": False},
+                    "dx_cluster": {
+                        "enabled": True,
+                        "reconnect_stable_seconds": 12.5,
+                    },
+                    "dx_cluster_local": {
+                        "enabled": True,
+                        "host": "local.example",
+                        "reconnect_stable_seconds": 45,
+                    },
+                    "rbn": {
+                        "enabled": True,
+                        "reconnect_stable_seconds": 90,
+                    },
+                },
+            }
+        )
+
+        sources = build_sources(config)
+
+        self.assertEqual(
+            [source.reconnect_stable_seconds for source in sources],
+            [12.5, 45.0, 90.0],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
