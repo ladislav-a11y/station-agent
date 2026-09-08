@@ -124,6 +124,30 @@ class Log4OMCandidateIntegrationTests(unittest.TestCase):
 
         self.assertEqual(decision.action, "TUNE")
 
+    def test_all_runtime_lookup_failures_keep_candidates_and_autotune_fail_open(self):
+        failure_statuses = (
+            QSOVerificationStatus.LOGIN_ERROR,
+            QSOVerificationStatus.SESSION_ERROR,
+            QSOVerificationStatus.PERMISSION_DENIED,
+            QSOVerificationStatus.PATH_ERROR,
+            QSOVerificationStatus.DATABASE_OPEN_ERROR,
+            QSOVerificationStatus.UNAVAILABLE,
+        )
+        for failure_status in failure_statuses:
+            with self.subTest(status=failure_status.value):
+                original = candidate()
+                failure = QSOVerificationResult(failure_status, "bezpečně redigovaná chyba")
+                state = build_state(
+                    [original],
+                    MappingChecker({
+                        (original.callsign, original.mode, original.freq_hz): failure
+                    }),
+                )
+
+                self.assertEqual(state.refresh_candidates(now=100.0), [original])
+                self.assertEqual(state.run_autotune_cycle(now=100.0).action, "TUNE")
+                self.assertEqual(state.log4om_verification.status, failure_status)
+
 
 if __name__ == "__main__":
     unittest.main()

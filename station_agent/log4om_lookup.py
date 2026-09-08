@@ -24,6 +24,10 @@ class QSOVerificationStatus(str, Enum):
     UNKNOWN_DATABASE = "unknown_database"
     INVALID_INPUT = "invalid_input"
     LOGIN_ERROR = "login_error"
+    SESSION_ERROR = "session_error"
+    PERMISSION_DENIED = "permission_denied"
+    PATH_ERROR = "path_error"
+    DATABASE_OPEN_ERROR = "database_open_error"
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,10 @@ class QSOVerificationResult:
 
 class _SMBLoginError(OSError):
     """Interní chyba SMB přihlášení; text z Windows se nikdy nepropaguje."""
+
+    def __init__(self, winerror: int | None = None):
+        super().__init__()
+        self.winerror = winerror
 
 
 def _unc_share(path: str) -> str | None:
@@ -89,7 +97,10 @@ class _WindowsSMBSession:
             ctypes.byref(resource), self.password, self.username, 0
         )
         if result != 0:
-            raise _SMBLoginError()
+            # Uchováváme jen číselnou kategorii Win32, nikdy uživatelské jméno,
+            # heslo, UNC cestu ani systémový text chyby. 1219 znamená konflikt
+            # již existující relace k témuž serveru pod jinou identitou.
+            raise _SMBLoginError(int(result))
         self._connected = True
         return self
 
@@ -149,15 +160,27 @@ class Log4OMQSOChecker:
 
         try:
             with _WindowsSMBSession(self.database_path, self._username, self._password):
-                if not os.path.exists(self.database_path):
+                try:
+                    os.stat(self.database_path)
+                except (FileNotFoundError, NotADirectoryError):
                     return QSOVerificationResult(
-                        QSOVerificationStatus.UNAVAILABLE,
-                        "Databáze Log4OM2 není dostupná na nakonfigurované cestě.",
+                        QSOVerificationStatus.PATH_ERROR,
+                        "Nakonfigurovaná cesta k databázi Log4OM2 neexistuje nebo je chybná.",
                     )
-                if not os.path.isfile(self.database_path) or not os.access(self.database_path, os.R_OK):
+                except PermissionError:
                     return QSOVerificationResult(
-                        QSOVerificationStatus.UNREADABLE,
-                        "Nakonfigurovaná cesta není čitelný databázový soubor.",
+                        QSOVerificationStatus.PERMISSION_DENIED,
+                        "Operační systém odmítl oprávnění ke čtení databáze Log4OM2.",
+                    )
+                if not os.path.isfile(self.database_path):
+                    return QSOVerificationResult(
+                        QSOVerificationStatus.PATH_ERROR,
+                        "Nakonfigurovaná cesta Log4OM2 neukazuje na databázový soubor.",
+                    )
+                if not os.access(self.database_path, os.R_OK):
+                    return QSOVerificationResult(
+                        QSOVerificationStatus.PERMISSION_DENIED,
+                        "Operační systém odmítl oprávnění ke čtení databáze Log4OM2.",
                     )
                 with closing(sqlite3.connect(_readonly_uri(self.database_path), uri=True)) as connection:
                     connection.execute("PRAGMA query_only=ON")
@@ -177,17 +200,33 @@ class Log4OMQSOChecker:
                         and _khz_to_hz(row_freq) == requested_hz
                         for row_mode, row_freq in rows
                     )
-        except _SMBLoginError:
+        except _SMBLoginError as exc:
+            if exc.winerror == 1219:
+                return QSOVerificationResult(
+                    QSOVerificationStatus.SESSION_ERROR,
+                    "K SMB serveru už existuje relace pod jinou identitou; "
+                    "stávající relaci vyřešte mimo Station Agent a pokus opakujte.",
+                )
             return QSOVerificationResult(
                 QSOVerificationStatus.LOGIN_ERROR,
                 "Přihlášení k umístění databáze Log4OM2 se nezdařilo.",
             )
         except sqlite3.DatabaseError:
             return QSOVerificationResult(
-                QSOVerificationStatus.UNREADABLE,
-                "Databázi Log4OM2 nelze přečíst v read-only režimu.",
+                QSOVerificationStatus.DATABASE_OPEN_ERROR,
+                "Databázi Log4OM2 nelze otevřít nebo přečíst v read-only režimu.",
             )
-        except OSError:
+        except PermissionError:
+            return QSOVerificationResult(
+                QSOVerificationStatus.PERMISSION_DENIED,
+                "Operační systém odmítl oprávnění ke čtení databáze Log4OM2.",
+            )
+        except OSError as exc:
+            if getattr(exc, "winerror", None) in {3, 123, 161}:
+                return QSOVerificationResult(
+                    QSOVerificationStatus.PATH_ERROR,
+                    "Nakonfigurovaná cesta k databázi Log4OM2 neexistuje nebo je chybná.",
+                )
             return QSOVerificationResult(
                 QSOVerificationStatus.UNAVAILABLE,
                 "Databáze Log4OM2 je momentálně nedostupná.",

@@ -103,7 +103,7 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
         result = Log4OMQSOChecker(os.path.join(self.tempdir.name, "missing.sqlite")).check(
             "OK1ABC", "SSB", 14_195_125
         )
-        self.assertEqual(result.status, QSOVerificationStatus.UNAVAILABLE)
+        self.assertEqual(result.status, QSOVerificationStatus.PATH_ERROR)
         self.assertFalse(result.verified)
         self.assertIsNone(result.exists)
 
@@ -121,7 +121,7 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
             side_effect=sqlite3.DatabaseError("not a database"),
         ):
             result = self.checker.check("OK1ABC", "SSB", 14_195_125)
-        self.assertEqual(result.status, QSOVerificationStatus.UNREADABLE)
+        self.assertEqual(result.status, QSOVerificationStatus.DATABASE_OPEN_ERROR)
         self.assertFalse(result.verified)
         self.assertIn("read-only", result.diagnostic)
 
@@ -134,11 +134,11 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
         database_path = r"\\server\share\log.sqlite"
         checker = Log4OMQSOChecker(database_path, "DOMAIN\\user", "secret")
         with patch("station_agent.log4om_lookup._WindowsSMBSession") as session_type, patch(
-            "station_agent.log4om_lookup.os.path.exists", return_value=False
+            "station_agent.log4om_lookup.os.stat", side_effect=FileNotFoundError
         ):
             result = checker.check("OK1ABC", "SSB", 14_195_125)
         session_type.assert_called_once_with(database_path, "DOMAIN\\user", "secret")
-        self.assertEqual(result.status, QSOVerificationStatus.UNAVAILABLE)
+        self.assertEqual(result.status, QSOVerificationStatus.PATH_ERROR)
 
     def test_login_failure_has_distinct_redacted_status(self):
         checker = Log4OMQSOChecker(r"\\server\share\log.sqlite", "private-user", "top-secret")
@@ -149,6 +149,21 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
         self.assertIsNone(result.exists)
         self.assertNotIn("private-user", result.diagnostic)
         self.assertNotIn("top-secret", result.diagnostic)
+
+    def test_existing_smb_session_conflict_has_distinct_redacted_status(self):
+        checker = Log4OMQSOChecker(r"\\server\share\log.sqlite", "private-user", "top-secret")
+        with patch.object(_WindowsSMBSession, "__enter__", side_effect=_SMBLoginError(1219)):
+            result = checker.check("OK1ABC", "SSB", 14_195_125)
+        self.assertEqual(result.status, QSOVerificationStatus.SESSION_ERROR)
+        self.assertIn("relace", result.diagnostic)
+        self.assertNotIn("private-user", result.diagnostic)
+        self.assertNotIn("top-secret", result.diagnostic)
+
+    def test_permission_failure_has_distinct_redacted_status(self):
+        with patch("station_agent.log4om_lookup.os.stat", side_effect=PermissionError("secret path")):
+            result = self.checker.check("OK1ABC", "SSB", 14_195_125)
+        self.assertEqual(result.status, QSOVerificationStatus.PERMISSION_DENIED)
+        self.assertNotIn("secret path", result.diagnostic)
 
 
 if __name__ == "__main__":

@@ -208,7 +208,11 @@ aktuálním Windows přihlášením. UNC share může volitelně použít explic
 údajů z lokálního `config.yaml`, který Git ignoruje. Údaje se použijí jen pro
 dočasnou deviceless SMB relaci a nesmějí se psát do sdíleného example configu,
 argumentů procesu ani logů. Jméno i heslo musí být vyplněny společně. Chyba
-přihlášení má samostatný neověřený stav `login_error`; diagnostika ani
+přihlášení má samostatný neověřený stav `login_error`. Konflikt již existující
+Windows SMB relace (Win32 1219) se hlásí jako `session_error` s pokynem vyřešit
+relaci mimo Station Agent; aplikace žádnou cizí relaci sama neodpojuje. Kontrola
+dále samostatně rozlišuje `permission_denied`, `path_error` a
+`database_open_error`. Diagnostika ani
 serializovaný config neobsahují cestu, uživatelské jméno, heslo, text chyby
 ovladače ani osobní QSO data.
 
@@ -233,8 +237,9 @@ zastaralý pohled. Aktualizaci snapshotu musí zajistit provozní postup Log4OM2
 Metoda `check(callsign, mode, freq_hz)` porovnává volací značku,
 normalizovaný mód a hlavní `freq`, kterou převádí z kHz na celé Hz. `freqrx`
 se pro běžnou shodu nepoužívá. Výsledek rozlišuje nalezenou a nenalezenou
-ověřenou shodu od nedostupného, nečitelného nebo neznámého databázového
-souboru a vždy obsahuje srozumitelnou diagnostiku.
+ověřenou shodu od chyby SMB identity/relace, oprávnění, cesty, dostupnosti,
+SQLite otevření nebo neznámého schématu a vždy obsahuje redigovanou,
+srozumitelnou diagnostiku.
 
 Při každém sestavení kandidátů Station Agent tímto read-only rozhraním ověří
 jejich přesnou trojici callsign, normalizovaný mód a hlavní frekvenci. Ověřená
