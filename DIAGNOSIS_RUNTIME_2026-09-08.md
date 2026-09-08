@@ -76,3 +76,34 @@ uvedeny.
   změna by překročila read-only diagnostiku a mohla ovlivnit jiné aplikace.
 - Test suite je podle runtime contractu výhradně auditní evidence
   ai-orchestratoru a agent ji nespouštěl.
+
+## Opakované živé ověření po auditu
+
+- Na čistém checkoutu `2c19773` byl znovu spuštěn přímo
+  `start_station_agent.bat`. Batch načetl ignorovaný `config.yaml`, otevřel
+  localhost GUI na `127.0.0.1:8765` a běžící API vrátilo stav všech
+  nakonfigurovaných zdrojů. Produkční kód ani konfigurace nebyly změněny.
+- První GUI/API snímek ukázal všech pět telnet zdrojů jako `pending`, i
+  když proces už měl navázané samostatné TCP relace. Po následujícím
+  60sekundovém source pollu byly všechny čtyři DX Cluster zdroje i RBN
+  `ok`; cache obsahovaly 1, 0, 1, 0 a 38 spotů. Potvrzenou příčinou
+  dočasně zastaralého GUI stavu je obal `PolledSource`: po prvním fetchi,
+  který teprve spustí telnet vlákno, aktualizuje stav znovu až po
+  `polling.source_interval_seconds: 60`, přestože socket se mezitím připojil.
+  Nejde o společný výpadek serverů. Navazující oprava má oddělit okamžitý
+  stav telnet relace od intervalu fetch/cache a zobrazit reconnect deadline;
+  HTTP 429 backoff musí zůstat samostatnou kategorií.
+- Live `/api/candidates` vrátilo 383 kandidátů, z toho 381 s locatorem.
+  Všech 381 bylo v tomto snímku potvrzeno pouze zdrojem `pskreporter`, což
+  znovu dokládá funkční přenos zdroj -> `Spot.locator` -> databáze ->
+  `Candidate.locator` -> GUI JSON. Dva záznamy bez locatoru jsou omezení
+  vstupních dat, nikoli plošná ztráta v integračním toku.
+- Read-only Log4OM2 kontrola znovu vrátila `configured=true`,
+  `verified=false`, `status=login_error`. V kombinaci s dříve zachyceným
+  Windows kódem 1219 to potvrzuje lokální konflikt SMB relace/autentizace
+  před kontrolou cesty a SQLite; z tohoto běhu proto nelze tvrdit chybu UNC
+  cesty, souborových oprávnění ani databázového schématu.
+- Aplikace byla ukončena vlastním `/api/shutdown`. Dočasné logy byly
+  drženy mimo repozitář a po ověření odstraněny; nebyly do nich ani do
+  tohoto dokumentu kopírovány přihlašovací hodnoty nebo konkrétní UNC
+  cesta.
