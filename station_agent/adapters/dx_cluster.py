@@ -40,6 +40,14 @@ _LIVE_LINE_RE = re.compile(
 
 _MODE_KEYWORDS = ["FT8", "FT4", "PSK31", "PSK63", "RTTY", "CW", "USB", "LSB", "SSB", "JS8"]
 
+# Maidenhead locator explicitly carried in a cluster comment.  The complete
+# token is required so ordinary award/reference identifiers are not mistaken
+# for station coordinates.
+_LOCATOR_RE = re.compile(
+    r"(?<![A-Z0-9])(?P<locator>[A-R]{2}\d{2}(?:[A-X]{2}(?:\d{2}(?:[A-X]{2})?)?)?)(?![A-Z0-9])",
+    re.IGNORECASE,
+)
+
 
 def _extract_mode(comment: str) -> str:
     """Najde mód uvedený v komentáři; jinak vrátí prázdný řetězec."""
@@ -48,6 +56,11 @@ def _extract_mode(comment: str) -> str:
         if re.search(rf"\b{re.escape(keyword)}\b", upper):
             return keyword
     return ""
+
+
+def _extract_locator(comment: str) -> str | None:
+    match = _LOCATOR_RE.search(comment)
+    return match.group("locator").upper() if match else None
 
 
 def parse_spot_line(
@@ -72,6 +85,7 @@ def parse_spot_line(
         source=source_name,
         comment=comment,
         spotter=match.groupdict().get("spotter") or match.groupdict().get("end_spotter") or "",
+        locator=_extract_locator(comment),
     )
 
 

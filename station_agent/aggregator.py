@@ -133,6 +133,7 @@ def group_spots_into_candidates(
                     comments=[s.comment for s in cluster if s.comment],
                     country=latest_with_country.country if latest_with_country else None,
                     locator=latest_with_locator.locator if latest_with_locator else None,
+                    locator_source=latest_with_locator.source if latest_with_locator else None,
                     bearing_deg=latest_with_bearing.bearing_deg if latest_with_bearing else None,
                     distance_km=latest_with_distance.distance_km if latest_with_distance else None,
                 )
@@ -145,6 +146,7 @@ def attach_dxcc_and_bearing(
     qth_latlon: tuple[float, float] | None,
     dxcc_fallback: Callable[[str], DXCCEntity | None] | None = None,
     dxcc_lookup: Callable[[str], DXCCEntity | None] = callsign_to_dxcc,
+    locator_fallback: Callable[[str], DXCCEntity | None] | None = None,
 ) -> None:
     """Doplní chybějící zemi a trasu bez přepsání evidence ze zdroje.
 
@@ -167,13 +169,26 @@ def attach_dxcc_and_bearing(
     """
     for candidate in candidates:
         entity = dxcc_lookup(candidate.callsign)
+        fallback_entity = None
         if entity is None and dxcc_fallback is not None:
-            entity = dxcc_fallback(candidate.callsign)
+            fallback_entity = dxcc_fallback(candidate.callsign)
+            entity = fallback_entity
         candidate.dxcc = entity
         if not candidate.country and entity is not None:
             candidate.country = entity.name
-        if not candidate.locator and entity is not None and entity.locator:
-            candidate.locator = entity.locator
+        if not candidate.locator and (locator_fallback is not None or fallback_entity is not None):
+            locator_entity = (
+                locator_fallback(candidate.callsign)
+                if locator_fallback is not None
+                else fallback_entity
+            )
+            if locator_entity is not None and locator_entity.locator:
+                candidate.locator = locator_entity.locator.strip().upper()
+                candidate.locator_source = "qrz"
+            else:
+                candidate.locator_reason = "QRZ fallback locator nevrátil"
+        elif not candidate.locator:
+            candidate.locator_reason = "zdroj locator neposkytl; QRZ fallback není zapnutý"
         if qth_latlon is None or (
             candidate.bearing_deg is not None and candidate.distance_km is not None
         ):
@@ -260,6 +275,7 @@ class Aggregator:
         propagation: PropagationContext | None = None,
         dxcc_fallback: Callable[[str], DXCCEntity | None] | None = None,
         dxcc_lookup: Callable[[str], DXCCEntity | None] = callsign_to_dxcc,
+        locator_fallback: Callable[[str], DXCCEntity | None] | None = None,
     ):
         self.sources = sources
         self.db = db
@@ -268,6 +284,7 @@ class Aggregator:
         self.propagation = propagation
         self.dxcc_fallback = dxcc_fallback
         self.dxcc_lookup = dxcc_lookup
+        self.locator_fallback = locator_fallback
         self.pollers: list[PolledSource] = [
             PolledSource(
                 source,
@@ -329,6 +346,7 @@ class Aggregator:
         attach_dxcc_and_bearing(
             candidates, self.qth_latlon, dxcc_fallback=self.dxcc_fallback,
             dxcc_lookup=self.dxcc_lookup,
+            locator_fallback=self.locator_fallback,
         )
         attach_scores(candidates, self.scoring_cfg, self.db, now=now, propagation=self.propagation)
         candidates.sort(key=lambda c: c.score.total if c.score else 0, reverse=True)

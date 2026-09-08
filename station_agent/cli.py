@@ -135,6 +135,7 @@ def build_app_state(config: AppConfig) -> AppState:
             source_poll_interval_seconds=config.polling.source_interval_seconds,
             source_backoff_max_seconds=config.polling.source_backoff_max_seconds,
             dxcc_lookup=country_lookup.lookup,
+            locator_fallback=dxcc_fallback,
         )
     except TypeError as exc:
         # sources.*.options je volný dict (SourceConfig.options), na rozdíl

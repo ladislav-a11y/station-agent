@@ -11,6 +11,7 @@ import time
 import unittest
 from pathlib import Path
 
+from station_agent.adapters.dx_cluster import parse_spot_line
 from station_agent.adapters.qrz import QRZClient, parse_qrz_lookup_xml
 from station_agent.aggregator import attach_dxcc_and_bearing, group_spots_into_candidates
 from station_agent.dxcc import callsign_to_dxcc
@@ -45,6 +46,18 @@ def _candidate(callsign: str, locator: str | None = None):
 
 
 class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
+    def test_dx_cluster_locator_survives_spot_candidate_and_payload(self):
+        spot = parse_spot_line(
+            "DX de OK1KT: 14195.0 JA1XYZ SSB CQ PM95vu 1234Z",
+            now=time.time(),
+        )
+        self.assertIsNotNone(spot)
+        candidate = group_spots_into_candidates([spot])[0]
+        attach_dxcc_and_bearing([candidate], qth_latlon=QTH)
+        payload = candidate_to_dict(candidate)
+        self.assertEqual(payload["locator"], "PM95VU")
+        self.assertEqual(payload["locator_source"], "dx_cluster")
+
     def test_common_callsign_uses_offline_prefix_and_valid_locator(self):
         candidate = _candidate("JA1XYZ", "PM95VU")
         fallback_calls: list[str] = []
@@ -103,6 +116,34 @@ class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
         )
 
         self.assertIsNone(candidate_to_dict(candidate)["locator"])
+        self.assertEqual(
+            candidate_to_dict(candidate)["locator_reason"],
+            "QRZ fallback locator nevrátil",
+        )
+
+    def test_known_country_never_supplies_a_locator_without_qrz_opt_in(self):
+        candidate = _candidate("JA1XYZ")
+        attach_dxcc_and_bearing([candidate], qth_latlon=QTH)
+        payload = candidate_to_dict(candidate)
+        self.assertIsNone(payload["locator"])
+        self.assertIn("QRZ fallback není zapnutý", payload["locator_reason"])
+
+    def test_explicit_qrz_fallback_supplies_locator_for_known_country(self):
+        entity = parse_qrz_lookup_xml(LOOKUP_4L5O_XML)
+        candidate = _candidate("JA1XYZ")
+        calls: list[str] = []
+
+        def locator_lookup(call: str):
+            calls.append(call)
+            return entity
+
+        attach_dxcc_and_bearing(
+            [candidate], qth_latlon=QTH, locator_fallback=locator_lookup
+        )
+        payload = candidate_to_dict(candidate)
+        self.assertEqual(calls, ["JA1XYZ"])
+        self.assertEqual(payload["locator"], "LN41OX")
+        self.assertEqual(payload["locator_source"], "qrz")
 
     def test_extended_prefix_prefers_longest_assigned_block(self):
         # EG8 je Kanarske ostrovy, zatimco obecne EG patri Spanelsku.
@@ -156,7 +197,7 @@ class ApiAndDisplayRegressionTests(unittest.TestCase):
 
         self.assertIn("<th>Lokátor</th>", page)
         self.assertIn('const country = c.country || (c.dxcc && c.dxcc.name) || "?";', script)
-        self.assertIn('const locator = c.locator || "?";', script)
+        self.assertIn('Neznámý: ${c.locator_reason', script)
         self.assertIn("c.bearing_deg != null", script)
         self.assertIn('c.distance_km ?? "?"', script)
         self.assertIn("<td>${locator}</td>", script)

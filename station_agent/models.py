@@ -80,6 +80,8 @@ class Candidate:
     comments: list[str] = field(default_factory=list)
     country: str | None = None
     locator: str | None = None
+    locator_source: str | None = None
+    locator_reason: str | None = None
     dxcc: DXCCEntity | None = None
     bearing_deg: float | None = None
     distance_km: float | None = None
