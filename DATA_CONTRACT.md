@@ -39,8 +39,7 @@ stejným callsign + band + kompatibilním módem + přibližnou frekvencí +
 | `best_snr_db` | `max()` z nenulových `snr_db` v clusteru | `None`, pokud žádný spot SNR nehlásí |
 | `dxcc` | `dxcc_lookup(callsign)` v `aggregator.attach_dxcc_and_bearing()`, produkčně `country_lookup.CountryLookup.lookup` | jediný řetězec zdrojů, každý krok se zkusí jen když ten předchozí vrátí `None`: (1) read-only Log4OM2 country databáze (`ctyfile.json`/`country.xml`, pokud je na disku nalezená -- viz `country_lookup._country_file_candidates()`), (2) volitelný `pyhamtools` country-file backend, (3) vestavěná offline `dxcc.PREFIX_TABLE`, (4) volitelný síťový `network_fallback` (typicky `adapters/qrz.py::QRZClient.lookup`, zapojen jen když `qrz.enabled`), viz README "DXCC/země fallback přes QRZ.com". Žádný krok nevrací nic mimo tento řetězec ani nedopočítává hodnotu -- neúspěch celého řetězce zůstává `None` ("?" v GUI) |
 | `country` | nejnovější neprázdná hodnota ze spotů, jinak DXCC dle prefixu | dodanou zemi nepřepisuje odhad |
-| `locator` | nejnovější neprázdná hodnota ze spotů | původní hodnota se zachová i tehdy, když ji Maidenhead převodník odmítne; jde o evidenci zdroje, ne o konfigurované QTH |
-| `bearing_deg`, `distance_km` | přímá evidence ze spotu, jinak `bearing.bearing_and_distance()` z QTH + platného lokátoru stanice; při odmítnutí lokátoru z bodu DXCC entity | Odmítnutý lokátor se nepoužije jako souřadnice a vyvolá vysvětlující varování; `None`, pokud chybí QTH nebo použitelný cíl -- nikdy se nedosazuje placeholder |
+| `bearing_deg`, `distance_km` | přímá evidence ze spotu, jinak `bearing.bearing_and_distance()` z QTH + referenčního bodu DXCC entity | Lokátor ze spotu se do kandidáta nepřenáší ani pro výpočet trasy; `None`, pokud chybí QTH nebo použitelný cíl -- nikdy se nedosazuje placeholder |
 | `score` | `scoring.score_candidate()` | viz sekce 3 |
 
 ## 3. Scoring (station_agent/scoring.py) -- transparentní 0-100

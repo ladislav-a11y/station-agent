@@ -15,7 +15,7 @@ from typing import Callable
 
 from station_agent.adapters.base import SpotSource
 from station_agent.adapters.polling import DEFAULT_BACKOFF_MAX_SECONDS, PolledSource
-from station_agent.bearing import bearing_and_distance, maidenhead_to_latlon, validate_latlon
+from station_agent.bearing import bearing_and_distance, validate_latlon
 from station_agent.bandplan import validate_mode_frequency
 from station_agent.config import ScoringConfig
 from station_agent.db import Database
@@ -121,7 +121,6 @@ def group_spots_into_candidates(
                 s.reliability_percent for s in cluster if s.reliability_percent is not None
             ]
             latest_with_country = next((s for s in reversed(cluster) if s.country), None)
-            latest_with_locator = next((s for s in reversed(cluster) if s.locator), None)
             latest_with_bearing = next((s for s in reversed(cluster) if s.bearing_deg is not None), None)
             latest_with_distance = next((s for s in reversed(cluster) if s.distance_km is not None), None)
             candidates.append(
@@ -137,8 +136,6 @@ def group_spots_into_candidates(
                     best_snr_db=max(snr_values) if snr_values else None,
                     comments=[s.comment for s in cluster if s.comment],
                     country=latest_with_country.country if latest_with_country else None,
-                    locator=latest_with_locator.locator if latest_with_locator else None,
-                    locator_source=latest_with_locator.source if latest_with_locator else None,
                     bearing_deg=latest_with_bearing.bearing_deg if latest_with_bearing else None,
                     distance_km=latest_with_distance.distance_km if latest_with_distance else None,
                     reliability_percent=min(reliability_values) if reliability_values else None,
@@ -152,17 +149,8 @@ def attach_dxcc_and_bearing(
     qth_latlon: tuple[float, float] | None,
     dxcc_fallback: Callable[[str], DXCCEntity | None] | None = None,
     dxcc_lookup: Callable[[str], DXCCEntity | None] = callsign_to_dxcc,
-    locator_fallback: Callable[[str], DXCCEntity | None] | None = None,
 ) -> None:
     """Doplní chybějící zemi a trasu bez přepsání evidence ze zdroje.
-
-    Lokátor konkrétní stanice je přesnější než referenční bod DXCC entity,
-    proto se pro výpočet používá přednostně. ``Spot`` ale hodnotu lokátoru
-    pouze normalizuje; její Maidenhead formát ověřuje až tato fáze při
-    převodu na souřadnice. Hodnota odmítnutá převodníkem proto zůstává
-    zachovaná jako původní evidence ze zdroje, nepoužije se pro geometrii
-    a bezpečně se přejde na DXCC referenční bod. Varování se tedy týká
-    lokátoru DX kandidáta dodaného zdrojem, nikoli konfigurovaného QTH.
 
     ``dxcc_lookup`` je primární resolver (výchozí chování zůstává vestavěná
     tabulka). Běžící aplikace sem předává ``CountryLookup``, který podle
@@ -182,19 +170,6 @@ def attach_dxcc_and_bearing(
         candidate.dxcc = entity
         if not candidate.country and entity is not None:
             candidate.country = entity.name
-        if not candidate.locator and (locator_fallback is not None or fallback_entity is not None):
-            locator_entity = (
-                locator_fallback(candidate.callsign)
-                if locator_fallback is not None
-                else fallback_entity
-            )
-            if locator_entity is not None and locator_entity.locator:
-                candidate.locator = locator_entity.locator.strip().upper()
-                candidate.locator_source = "qrz"
-            else:
-                candidate.locator_reason = "QRZ fallback locator nevrátil"
-        elif not candidate.locator:
-            candidate.locator_reason = "zdroj locator neposkytl; QRZ fallback není zapnutý"
         if qth_latlon is None or (
             candidate.bearing_deg is not None and candidate.distance_km is not None
         ):
@@ -207,18 +182,7 @@ def attach_dxcc_and_bearing(
             continue
 
         target_latlon = None
-        if candidate.locator:
-            try:
-                target_latlon = maidenhead_to_latlon(candidate.locator)
-            except ValueError as exc:
-                logger.warning(
-                    "Lokátor kandidáta %r pro %s nelze použít; "
-                    "použije se referenční bod DXCC, pokud je známý: %s",
-                    candidate.locator,
-                    candidate.callsign,
-                    exc,
-                )
-        if target_latlon is None and entity is not None:
+        if entity is not None:
             try:
                 target_latlon = validate_latlon(
                     entity.latitude, entity.longitude,
@@ -281,7 +245,6 @@ class Aggregator:
         propagation: PropagationContext | None = None,
         dxcc_fallback: Callable[[str], DXCCEntity | None] | None = None,
         dxcc_lookup: Callable[[str], DXCCEntity | None] = callsign_to_dxcc,
-        locator_fallback: Callable[[str], DXCCEntity | None] | None = None,
     ):
         self.sources = sources
         self.db = db
@@ -290,7 +253,6 @@ class Aggregator:
         self.propagation = propagation
         self.dxcc_fallback = dxcc_fallback
         self.dxcc_lookup = dxcc_lookup
-        self.locator_fallback = locator_fallback
         self.pollers: list[PolledSource] = [
             PolledSource(
                 source,
@@ -371,7 +333,6 @@ class Aggregator:
         attach_dxcc_and_bearing(
             candidates, self.qth_latlon, dxcc_fallback=self.dxcc_fallback,
             dxcc_lookup=self.dxcc_lookup,
-            locator_fallback=self.locator_fallback,
         )
         attach_scores(candidates, self.scoring_cfg, self.db, now=now, propagation=self.propagation)
         candidates.sort(key=lambda c: c.score.total if c.score else 0, reverse=True)

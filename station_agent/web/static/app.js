@@ -116,9 +116,6 @@ function renderCandidates() {
     row.className = "candidate-row" + (isSelected ? " selected" : "");
     const country = c.country || (c.dxcc && c.dxcc.name) || "?";
     const dxcc = c.dxcc && c.dxcc.continent ? `${country} (${c.dxcc.continent})` : country;
-    const locator = c.locator
-      ? `${c.locator}${c.locator_source ? ` (${c.locator_source})` : ""}`
-      : `Neznámý: ${c.locator_reason || "zdroj locator neposkytl"}`;
     const bearing = c.bearing_deg != null ? `${c.bearing_deg}° / ${c.distance_km ?? "?"} km` : "-";
     const sources = c.confirming_sources.join(", ");
     const scoreTotal = c.score ? c.score.total : 0;
@@ -126,7 +123,6 @@ function renderCandidates() {
     row.innerHTML = `
       <td>${c.callsign}</td>
       <td>${dxcc}</td>
-      <td>${locator}</td>
       <td>${c.freq_mhz.toFixed(3)} MHz</td>
       <td>${MODE_LABELS[c.mode] ?? c.mode}</td>
       <td>${fmtAge(c.age_seconds)}</td>

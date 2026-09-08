@@ -14,9 +14,6 @@ def candidate_to_dict(candidate: Candidate) -> dict:
         "mode": candidate.mode,
         "band": candidate.band,
         "country": candidate.country,
-        "locator": candidate.locator,
-        "locator_source": candidate.locator_source,
-        "locator_reason": candidate.locator_reason,
         "dxcc": (
             {
                 "name": candidate.dxcc.name,

@@ -142,7 +142,6 @@ class CandidateSerializationContractTests(unittest.TestCase):
         "freq_hz",
         "mode",
         "country",
-        "locator",
         "dxcc",
         "age_seconds",
         "confirming_sources",

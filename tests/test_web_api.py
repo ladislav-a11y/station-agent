@@ -184,11 +184,14 @@ if (JSON.stringify(calls) !== JSON.stringify(expected)) {
         self.assertGreater(len(data["candidates"]), 0)
         first = data["candidates"][0]
         for key in (
-            "callsign", "freq_hz", "mode", "band", "country", "locator",
+            "callsign", "freq_hz", "mode", "band", "country",
             "dxcc", "bearing_deg", "distance_km", "age_seconds",
             "confirming_sources", "score",
         ):
             self.assertIn(key, first)
+        self.assertNotIn("locator", first)
+        self.assertNotIn("locator_source", first)
+        self.assertNotIn("locator_reason", first)
         self.assertIn("reasons", first["score"])
 
     def test_status_endpoint_reports_bands_modes_and_autotune(self):

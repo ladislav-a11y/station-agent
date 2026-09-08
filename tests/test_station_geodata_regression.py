@@ -46,7 +46,7 @@ def _candidate(callsign: str, locator: str | None = None):
 
 
 class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
-    def test_dx_cluster_locator_survives_spot_candidate_and_payload(self):
+    def test_dx_cluster_locator_does_not_enter_candidate_payload(self):
         spot = parse_spot_line(
             "DX de OK1KT: 14195.0 JA1XYZ SSB CQ PM95vu 1234Z",
             now=time.time(),
@@ -55,10 +55,10 @@ class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
         candidate = group_spots_into_candidates([spot])[0]
         attach_dxcc_and_bearing([candidate], qth_latlon=QTH)
         payload = candidate_to_dict(candidate)
-        self.assertEqual(payload["locator"], "PM95VU")
-        self.assertEqual(payload["locator_source"], "dx_cluster")
+        self.assertFalse(hasattr(candidate, "locator"))
+        self.assertNotIn("locator", payload)
 
-    def test_common_callsign_uses_offline_prefix_and_valid_locator(self):
+    def test_common_callsign_uses_offline_prefix_and_ignores_spot_locator(self):
         candidate = _candidate("JA1XYZ", "PM95VU")
         fallback_calls: list[str] = []
 
@@ -70,7 +70,7 @@ class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
 
         self.assertEqual(fallback_calls, [])
         self.assertEqual(candidate.country, "Japan")
-        self.assertEqual(candidate.locator, "PM95VU")
+        self.assertFalse(hasattr(candidate, "locator"))
         self.assertIsNotNone(candidate.bearing_deg)
         self.assertIsNotNone(candidate.distance_km)
         self.assertGreater(candidate.distance_km, 1_000)
@@ -83,7 +83,7 @@ class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
 
         payload = candidate_to_dict(candidate)
         self.assertIsNone(payload["country"])
-        self.assertIsNone(payload["locator"])
+        self.assertNotIn("locator", payload)
         self.assertIsNone(payload["dxcc"])
         self.assertIsNone(payload["bearing_deg"])
         self.assertIsNone(payload["distance_km"])
@@ -102,11 +102,11 @@ class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
         self.assertEqual(payload["callsign"], "4L5O")
         self.assertEqual(payload["country"], "Georgia")
         self.assertEqual(payload["dxcc"]["name"], "Georgia")
-        self.assertEqual(payload["locator"], "LN41OX")
+        self.assertNotIn("locator", payload)
         self.assertIsNotNone(payload["bearing_deg"])
         self.assertIsNotNone(payload["distance_km"])
 
-    def test_lookup_without_grid_keeps_locator_explicitly_unknown(self):
+    def test_lookup_without_grid_keeps_candidate_payload_locator_free(self):
         entity = parse_qrz_lookup_xml(LOOKUP_4L5O_XML.replace("<grid>LN41ox</grid>", ""))
         self.assertIsNotNone(entity)
         candidate = _candidate("4L5O")
@@ -115,35 +115,13 @@ class CallsignGeodataPipelineRegressionTests(unittest.TestCase):
             [candidate], qth_latlon=QTH, dxcc_fallback=lambda _call: entity
         )
 
-        self.assertIsNone(candidate_to_dict(candidate)["locator"])
-        self.assertEqual(
-            candidate_to_dict(candidate)["locator_reason"],
-            "QRZ fallback locator nevrátil",
-        )
+        self.assertNotIn("locator", candidate_to_dict(candidate))
 
-    def test_known_country_never_supplies_a_locator_without_qrz_opt_in(self):
+    def test_known_country_payload_has_no_locator(self):
         candidate = _candidate("JA1XYZ")
         attach_dxcc_and_bearing([candidate], qth_latlon=QTH)
         payload = candidate_to_dict(candidate)
-        self.assertIsNone(payload["locator"])
-        self.assertIn("QRZ fallback není zapnutý", payload["locator_reason"])
-
-    def test_explicit_qrz_fallback_supplies_locator_for_known_country(self):
-        entity = parse_qrz_lookup_xml(LOOKUP_4L5O_XML)
-        candidate = _candidate("JA1XYZ")
-        calls: list[str] = []
-
-        def locator_lookup(call: str):
-            calls.append(call)
-            return entity
-
-        attach_dxcc_and_bearing(
-            [candidate], qth_latlon=QTH, locator_fallback=locator_lookup
-        )
-        payload = candidate_to_dict(candidate)
-        self.assertEqual(calls, ["JA1XYZ"])
-        self.assertEqual(payload["locator"], "LN41OX")
-        self.assertEqual(payload["locator_source"], "qrz")
+        self.assertNotIn("locator", payload)
 
     def test_extended_prefix_prefers_longest_assigned_block(self):
         # EG8 je Kanarske ostrovy, zatimco obecne EG patri Spanelsku.
@@ -174,19 +152,21 @@ class LookupCacheRegressionTests(unittest.TestCase):
 
 
 class ApiAndDisplayRegressionTests(unittest.TestCase):
-    def test_aggregated_candidate_payload_preserves_all_geodata(self):
+    def test_aggregated_candidate_payload_preserves_geodata_except_locator(self):
         candidate = _candidate("JA1XYZ", "PM95VU")
         attach_dxcc_and_bearing([candidate], qth_latlon=QTH)
         payload = candidate_to_dict(candidate)
 
         self.assertEqual(payload["callsign"], "JA1XYZ")
         self.assertEqual(payload["country"], "Japan")
-        self.assertEqual(payload["locator"], "PM95VU")
+        self.assertNotIn("locator", payload)
+        self.assertNotIn("locator_source", payload)
+        self.assertNotIn("locator_reason", payload)
         self.assertEqual(payload["dxcc"]["name"], "Japan")
         self.assertIsInstance(payload["bearing_deg"], float)
         self.assertIsInstance(payload["distance_km"], float)
 
-    def test_gui_renders_values_and_unknown_markers_from_api_fields(self):
+    def test_gui_renders_geodata_without_locator_controls(self):
         root = Path(__file__).resolve().parents[1]
         script = (root / "station_agent" / "web" / "static" / "app.js").read_text(
             encoding="utf-8"
@@ -195,12 +175,13 @@ class ApiAndDisplayRegressionTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("<th>Lokátor</th>", page)
+        self.assertNotIn("<th>Lokátor</th>", page)
         self.assertIn('const country = c.country || (c.dxcc && c.dxcc.name) || "?";', script)
-        self.assertIn('Neznámý: ${c.locator_reason', script)
+        self.assertNotIn("c.locator", script)
+        self.assertNotIn("locator_reason", script)
         self.assertIn("c.bearing_deg != null", script)
         self.assertIn('c.distance_km ?? "?"', script)
-        self.assertIn("<td>${locator}</td>", script)
+        self.assertNotIn("<td>${locator}</td>", script)
         self.assertIn("<td>${bearing}</td>", script)
 
 
