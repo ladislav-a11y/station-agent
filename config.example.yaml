@@ -1,5 +1,9 @@
-# Station Agent - příklad konfigurace.
-# Zkopíruj jako config.yaml a uprav. Bezpečnostně kritické výchozí hodnoty
+# Station Agent - verzovaný příklad konfigurace, runtime ho přímo nenačítá.
+# Zkopíruj ho v kořeni projektu jako ignorovaný config.yaml a uprav. Startovací
+# batch i výchozí CLI start načítají právě tento lokální soubor; jinou cestu lze
+# zvolit pouze explicitním argumentem --config. Přihlašovací a jiné tajné údaje
+# patří výhradně do config.yaml, nikdy do tohoto example souboru.
+# Bezpečnostně kritické výchozí hodnoty
 # (rig.mode: mock, web.host: 127.0.0.1) NEMĚŇ, pokud přesně nevíš, co děláš
 # -- viz AGENTS.md.
 

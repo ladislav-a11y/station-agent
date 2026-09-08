@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from station_agent.bandplan import SUPPORTED_BANDS
 from station_agent.modes import SUPPORTED_MODES
@@ -16,6 +17,7 @@ from station_agent.config import (
     config_from_dict,
     load_config,
 )
+from station_agent.cli import DEFAULT_CONFIG_PATH, main
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -80,6 +82,39 @@ class MiniYamlParserTests(unittest.TestCase):
         parsed = _MiniYamlParser(text).parse()
         self.assertEqual(parsed, {"a": 1, "b": 2})
 
+
+class RuntimeConfigContractTests(unittest.TestCase):
+    def test_default_cli_config_is_project_local_config_yaml(self):
+        expected = REPO_ROOT / "config.yaml"
+        self.assertEqual(DEFAULT_CONFIG_PATH, expected)
+        with mock.patch("station_agent.cli.load_config", side_effect=FileNotFoundError("missing")) as loader:
+            with self.assertLogs("station_agent.cli", level="ERROR"):
+                self.assertEqual(main([]), 1)
+        loader.assert_called_once_with(expected)
+
+    def test_explicit_config_path_overrides_default_unchanged(self):
+        explicit = Path("alternate") / "private.yaml"
+        with mock.patch("station_agent.cli.load_config", side_effect=FileNotFoundError("missing")) as loader:
+            with self.assertLogs("station_agent.cli", level="ERROR"):
+                self.assertEqual(main(["--config", str(explicit)]), 1)
+        loader.assert_called_once_with(str(explicit))
+
+    def test_launcher_passes_project_local_config_explicitly(self):
+        launcher = (REPO_ROOT / "start_station_agent.bat").read_text(encoding="utf-8")
+        self.assertIn('set "CONFIG_FILE=%PROJECT_DIR%config.yaml"', launcher)
+        self.assertIn('--config "%CONFIG_FILE%"', launcher)
+        self.assertNotIn("config.example.yaml", launcher)
+
+    def test_local_config_is_ignored_and_example_keeps_secrets_empty(self):
+        ignored = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("config.yaml", ignored)
+        example = load_config(REPO_ROOT / "config.example.yaml")
+        self.assertFalse(example.log4om_lookup.enabled)
+        self.assertEqual(example.log4om_lookup.username, "")
+        self.assertEqual(example.log4om_lookup.password, "")
+        self.assertFalse(example.qrz.enabled)
+        self.assertEqual(example.qrz.username, "")
+        self.assertEqual(example.qrz.password, "")
 
 class LoadConfigTests(unittest.TestCase):
     def test_all_station_identity_fields_are_optional(self):

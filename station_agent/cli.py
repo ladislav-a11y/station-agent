@@ -6,6 +6,7 @@ import argparse
 import logging
 import sqlite3
 import sys
+from pathlib import Path
 
 from station_agent.adapters.dx_cluster import DXClusterAdapter, RECOMMENDED_PROVIDERS
 from station_agent.adapters.mock import MockAdapter
@@ -27,6 +28,9 @@ from station_agent.rig import create_rig_control
 from station_agent.web.server import create_server
 
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 
 
 def build_sources(config: AppConfig) -> list:
@@ -248,7 +252,15 @@ def clear_database(config: AppConfig) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="station-agent", description="Station Agent DX asistent")
-    parser.add_argument("--config", default="config.yaml", help="cesta ke config.yaml")
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_PATH,
+        help=(
+            "cesta ke konfiguraci (výchozí: lokální config.yaml v kořeni "
+            "projektu; relativní explicitní cesta se vyhodnocuje vůči "
+            "aktuálnímu pracovnímu adresáři)"
+        ),
+    )
     parser.add_argument("--poll-interval", type=float, default=10.0, help="interval pollingu v sekundách")
     parser.add_argument(
         "--clear-database",

@@ -33,12 +33,20 @@ nikdy neovládá anténní rotátor — pouze zobrazuje vypočtený bearing.
 python -m venv .venv
 # volitelně: pip install -r requirements.txt   (PyYAML/pytest, nepovinné)
 cp config.example.yaml config.yaml
-python -m station_agent --config config.yaml
+python -m station_agent
 ```
 
 GUI pak najdeš na `http://127.0.0.1:8765` (port dle configu).
 
-`config.yaml` je v `.gitignore` a musí ho mít každý checkout vlastní. Pokud
+`config.example.yaml` je pouze verzovaný vzor a runtime ho nikdy automaticky
+nenačítá. `config.yaml` je v `.gitignore` a musí ho mít každý checkout vlastní;
+jen do něj patří přihlašovací údaje a jiné tajné hodnoty. `start_station_agent.bat`
+i `python -m station_agent` bez `--config` vždy zvolí `config.yaml` v kořeni
+projektu, nezávisle na aktuálním pracovním adresáři. Explicitní `--config cesta`
+tuto volbu přepíše; relativní explicitní cesta se vyhodnotí vůči aktuálnímu
+pracovnímu adresáři.
+
+Pokud
 krok `cp config.example.yaml config.yaml` vynecháš, nebo bude výsledný
 `config.yaml` obsahovat neplatný zápis či hodnotu mimo povolený rozsah
 (např. `rig.mode` jiné než `mock`/`live`), Station Agent to teď nahlásí
@@ -83,7 +91,7 @@ skončí s nenulovým návratovým kódem (`station_agent/config.py::load_config
    ```
 6. **Spusť aplikaci** (mock režim, bez rádia a bez internetu — funguje hned):
    ```powershell
-   python -m station_agent --config config.yaml
+   python -m station_agent
    ```
 7. **Otevři GUI** v prohlížeči na `http://127.0.0.1:8765` (nebo jiný port,
    pokud jsi ho v configu změnil).
@@ -147,7 +155,8 @@ neposílá — Station Agent umí jen číst a nastavovat frekvenci a mód.
      rigctld_port: 4532
      model: "IC-7300"
    ```
-7. **Spusť Station Agent** (`python -m station_agent --config config.yaml`)
+7. **Spusť Station Agent** (`python -m station_agent`; volitelný `--config`
+   použij jen pro záměrně jiný soubor)
    — v GUI by se měla objevit aktuální frekvence/mód přečtená z rádia
    (`rig-status` v hlavičce). AUTO TUNE (pokud ho zapneš) bude přes
    `rigctld` měnit jen frekvenci a mód, nikdy nic jiného.
@@ -366,7 +375,10 @@ stav/poslední chybu každého zdroje lze zjistit v `/api/status` (`sources`).
 
 ## Konfigurace
 
-Viz [config.example.yaml](config.example.yaml) — obsahuje QTH (locator nebo
+Kanonickou runtime konfigurací checkoutu je ignorovaný `config.yaml` v kořeni
+projektu. Vytvoř ho jednou z [config.example.yaml](config.example.yaml); example
+je pouze veřejná šablona bez tajných hodnot a aplikace na něj sama nepřepíná.
+Obsahuje QTH (locator nebo
 lat/lon), `rigctld` host/port, povolená pásma a módy, minimální skóre,
 AUTO TUNE, HOLD, minimální dobu držení, požadovaný rozdíl skóre a (pending)
 Log4OM2 endpoint.
