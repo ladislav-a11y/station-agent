@@ -45,6 +45,7 @@ DEFAULT_FREQ_MERGE_TOLERANCE_HZ = 700.0
 # omezuje, jak staré spoty se vůbec berou v úvahu vůči "teď"; tohle omezuje
 # rozestup MEZI jednotlivými spoty navzájem).
 DEFAULT_MERGE_TIME_WINDOW_SECONDS = 300.0
+RELIABILITY_THRESHOLD_PERCENT = 95.0
 
 
 def _freq_tolerance_for_mode(mode: str) -> float:
@@ -115,6 +116,9 @@ def group_spots_into_candidates(
             cluster.sort(key=lambda s: s.timestamp)
             latest = cluster[-1]
             snr_values = [s.snr_db for s in cluster if s.snr_db is not None]
+            reliability_values = [
+                s.reliability_percent for s in cluster if s.reliability_percent is not None
+            ]
             latest_with_country = next((s for s in reversed(cluster) if s.country), None)
             latest_with_locator = next((s for s in reversed(cluster) if s.locator), None)
             latest_with_bearing = next((s for s in reversed(cluster) if s.bearing_deg is not None), None)
@@ -136,6 +140,7 @@ def group_spots_into_candidates(
                     locator_source=latest_with_locator.source if latest_with_locator else None,
                     bearing_deg=latest_with_bearing.bearing_deg if latest_with_bearing else None,
                     distance_km=latest_with_distance.distance_km if latest_with_distance else None,
+                    reliability_percent=min(reliability_values) if reliability_values else None,
                 )
             )
     return candidates
@@ -343,6 +348,12 @@ class Aggregator:
             spots = [s for s in spots if s.mode in allowed_modes]
 
         candidates = group_spots_into_candidates(spots)
+        candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.reliability_percent is None
+            or candidate.reliability_percent >= RELIABILITY_THRESHOLD_PERCENT
+        ]
         attach_dxcc_and_bearing(
             candidates, self.qth_latlon, dxcc_fallback=self.dxcc_fallback,
             dxcc_lookup=self.dxcc_lookup,

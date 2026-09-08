@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -26,6 +27,7 @@ class Spot:
     locator: str | None = None
     bearing_deg: float | None = None
     distance_km: float | None = None
+    reliability_percent: float | None = None
 
     def __post_init__(self) -> None:
         self.callsign = self.callsign.strip().upper()
@@ -35,6 +37,11 @@ class Spot:
         self.freq_hz = canonical_digital_dial_frequency(self.freq_hz, self.mode)
         if not self.band:
             self.band = freq_to_band(self.freq_hz) or "unknown"
+        if self.reliability_percent is not None:
+            value = float(self.reliability_percent)
+            if not math.isfinite(value) or not 0.0 <= value <= 100.0:
+                raise ValueError("reliability_percent musí být v rozsahu 0..100")
+            self.reliability_percent = value
 
 
 @dataclass
@@ -85,6 +92,7 @@ class Candidate:
     dxcc: DXCCEntity | None = None
     bearing_deg: float | None = None
     distance_km: float | None = None
+    reliability_percent: float | None = None
     score: ScoreResult | None = None
 
     @property

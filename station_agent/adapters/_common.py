@@ -2,6 +2,37 @@
 
 from __future__ import annotations
 
+import math
+from typing import Literal
+
+
+def normalize_reliability_percent(
+    raw_value: object,
+    *,
+    unit: Literal["fraction", "percent"],
+) -> float | None:
+    """Normalizuje explicitní reliability údaj providera na procenta.
+
+    Jednotka je povinná, aby se hodnoty 0..1 nikdy neinterpretovaly odhadem.
+    Neplatný nebo chybějící údaj znamená ``None`` a zachová dosavadní
+    chování providerů bez tohoto metadatového pole.
+    """
+    if raw_value is None or isinstance(raw_value, bool):
+        return None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    if unit == "fraction":
+        if not 0.0 <= value <= 1.0:
+            return None
+        value *= 100.0
+    elif not 0.0 <= value <= 100.0:
+        return None
+    return value
+
 from datetime import datetime, timedelta, timezone
 
 

@@ -32,6 +32,7 @@ def candidate_to_dict(candidate: Candidate) -> dict:
         "confirming_sources": sorted(candidate.confirming_sources),
         "spotters": sorted(candidate.spotters),
         "best_snr_db": candidate.best_snr_db,
+        "reliability_percent": candidate.reliability_percent,
         "bearing_deg": (round(candidate.bearing_deg, 1) if candidate.bearing_deg is not None else None),
         "distance_km": (round(candidate.distance_km, 0) if candidate.distance_km is not None else None),
         "score": (
