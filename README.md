@@ -286,6 +286,10 @@ bezpečnostní invarianty, které se nesmí porušit).
 
 ## Stav externích zdrojů (adaptérů)
 
+Přesná inventura polí souvisejících se spolehlivostí a návrh budoucího
+procentního kontraktu s prahem 95 % jsou v
+[DX_PROVIDER_RELIABILITY_RESEARCH.md](DX_PROVIDER_RELIABILITY_RESEARCH.md).
+
 | Adaptér | Parsování / logika | Živé připojení |
 |---|---|---|
 | Mock (offline testovací data) | ✅ funkční | — |
