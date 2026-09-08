@@ -16,6 +16,7 @@ from typing import Callable
 from station_agent.adapters.base import SpotSource
 from station_agent.adapters.polling import DEFAULT_BACKOFF_MAX_SECONDS, PolledSource
 from station_agent.bearing import bearing_and_distance, maidenhead_to_latlon, validate_latlon
+from station_agent.bandplan import validate_mode_frequency
 from station_agent.config import ScoringConfig
 from station_agent.db import Database
 from station_agent.dxcc import callsign_to_dxcc
@@ -346,6 +347,19 @@ class Aggregator:
             spots = [s for s in spots if s.band in allowed_bands]
         if allowed_modes is not None:
             spots = [s for s in spots if s.mode in allowed_modes]
+
+        valid_spots = []
+        for spot in spots:
+            validation = validate_mode_frequency(spot.freq_hz, spot.mode)
+            if validation.valid:
+                valid_spots.append(spot)
+            else:
+                logger.info(
+                    "Spot %s %s Hz %s vyřazen: %s (%s)",
+                    spot.callsign, spot.freq_hz, spot.mode, validation.reason,
+                    validation.rule_id or "bez pravidla",
+                )
+        spots = valid_spots
 
         candidates = group_spots_into_candidates(spots)
         candidates = [

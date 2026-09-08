@@ -301,6 +301,21 @@ class AggregatorIntegrationTests(unittest.TestCase):
         candidates = aggregator.build_candidates(allowed_bands={"20m"}, allowed_modes={"SSB"})
         self.assertTrue(all(c.band == "20m" and c.mode == "SSB" for c in candidates))
 
+    def test_build_candidates_filters_invalid_mode_frequency_pair(self):
+        now = time.time()
+        spots = [
+            Spot(callsign="OK1BAD", freq_hz=7_040_000, mode="SSB", timestamp=now, source="mock"),
+            Spot(callsign="OK1EDGE", freq_hz=7_052_700, mode="SSB", timestamp=now, source="mock"),
+            Spot(callsign="OK1GOOD", freq_hz=7_086_000, mode="SSB", timestamp=now, source="mock"),
+        ]
+        aggregator = Aggregator([], self.db, self.scoring_cfg)
+
+        candidates = aggregator.build_candidates(spots, now=now)
+
+        self.assertEqual({candidate.callsign for candidate in candidates}, {"OK1EDGE", "OK1GOOD"})
+        good = next(candidate for candidate in candidates if candidate.callsign == "OK1GOOD")
+        self.assertEqual((good.freq_hz, good.mode), (7_086_000, "SSB"))
+
     def test_build_candidates_sorted_by_score_descending(self):
         aggregator = Aggregator([MockAdapter()], self.db, self.scoring_cfg, qth_latlon=(50.0, 14.0))
         aggregator.poll_once()
