@@ -260,7 +260,7 @@ const SOURCE_STATUS_LABELS = {
   ok: "OK",
   pending: "pending",
   error: "chyba",
-  backoff: "backoff (429)",
+  backoff: "čekání na další pokus",
 };
 
 function renderSourcesStatus(status) {

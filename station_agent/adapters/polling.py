@@ -116,12 +116,15 @@ class PolledSource:
         backoff_remaining = None
         if self.backoff_until is not None and self.backoff_until > now:
             backoff_remaining = round(self.backoff_until - now, 1)
+        reconnect_remaining = getattr(self.source, "reconnect_backoff_remaining_seconds", None)
+        if reconnect_remaining is not None:
+            backoff_remaining = round(reconnect_remaining, 1)
         age_seconds = None
         if self.last_success_ts is not None:
             age_seconds = round(max(0.0, now - self.last_success_ts), 1)
         return {
             "name": self.name,
-            "status": self.status,
+            "status": "backoff" if reconnect_remaining is not None and self.status == "error" else self.status,
             "last_error": self.last_error,
             "last_success_age_seconds": age_seconds,
             "backoff_remaining_seconds": backoff_remaining,

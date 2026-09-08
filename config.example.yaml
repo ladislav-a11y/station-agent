@@ -92,6 +92,7 @@ sources:
     port: 7373
     # První 3 minuty je stav "pending", aby měl telnet zdroj čas na rozběh.
     # startup_grace_seconds: 180
+    # reconnect_stable_seconds: 30  # kratší relace neresetují rostoucí backoff
     # Volitelně jiný callsign pro přihlášení než station.callsign výše.
     # callsign: "OK1EXAMPLE"
   rbn:
@@ -101,6 +102,7 @@ sources:
     host: "telnet.reversebeacon.net"
     port: 7000
     # startup_grace_seconds: 180
+    # reconnect_stable_seconds: 30
   pskreporter:
     # Živě funkční adaptér (HTTP GET + XML) -- viz README "Stav externích
     # zdrojů". I tak je defaultně vypnutý: live zdroje vyžadují explicitní

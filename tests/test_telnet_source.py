@@ -280,6 +280,50 @@ class LiveTelnetSpotSourceParsingTests(unittest.TestCase):
 
 
 class LiveTelnetSpotSourceReconnectTests(unittest.TestCase):
+    def test_short_connections_grow_backoff_instead_of_resetting_it(self):
+        server = _FakeTelnetServer(lines_per_connection=[[], [], []], keep_open=False)
+        try:
+            source = DXClusterAdapter(
+                host=server.host,
+                port=server.port,
+                callsign="OK1RPL",
+                reconnect_initial_seconds=0.05,
+                reconnect_max_seconds=0.4,
+                reconnect_stable_seconds=1.0,
+            )
+            with self.assertRaises(SourceNotReadyError):
+                source.fetch()
+            self.assertTrue(_wait_until(lambda: len(server.logins) >= 2))
+            self.assertGreaterEqual(source._backoff_seconds, 0.1)
+            self.assertTrue(_wait_until(lambda: len(server.logins) >= 3))
+            self.assertGreaterEqual(source._backoff_seconds, 0.2)
+        finally:
+            server.stop()
+            source.close()
+
+    def test_stable_connection_resets_backoff_for_next_disconnect(self):
+        server = _FakeTelnetServer(lines_per_connection=[[]], keep_open=True)
+        try:
+            source = DXClusterAdapter(
+                host=server.host,
+                port=server.port,
+                callsign="OK1RPL",
+                reconnect_initial_seconds=0.05,
+                reconnect_max_seconds=0.4,
+                reconnect_stable_seconds=0.1,
+            )
+            source._backoff_seconds = 0.4
+            with self.assertRaises(SourceNotReadyError):
+                source.fetch()
+            self.assertTrue(_wait_until(lambda: len(server.logins) >= 1))
+            time.sleep(0.15)
+            server.stop()
+            self.assertTrue(_wait_until(lambda: source._last_error is not None))
+            self.assertEqual(source._backoff_seconds, 0.05)
+        finally:
+            server.stop()
+            source.close()
+
     def test_reconnects_after_server_closes_connection(self):
         line1 = "DX de OK1KT:     14195.0  JA1XYZ       SSB first             1234Z"
         line2 = "DX de OK1KT:     14195.0  JA1XYZ       SSB second            1235Z"
@@ -369,6 +413,12 @@ class LiveTelnetSpotSourceIndependenceTests(unittest.TestCase):
 
             spots = _fetch_until_nonempty(good)
             self.assertEqual(len(spots), 1)
+
+            self.assertTrue(
+                _wait_until(lambda: broken.reconnect_backoff_remaining_seconds is not None)
+            )
+            self.assertIsNone(good.reconnect_backoff_remaining_seconds)
+            self.assertGreater(broken.reconnect_backoff_remaining_seconds, 0.0)
 
             with self.assertRaises(SourceNotReadyError):
                 broken.fetch()

@@ -54,6 +54,7 @@ DEFAULT_CONNECT_TIMEOUT_S = 15.0
 DEFAULT_READ_TIMEOUT_S = 300.0
 DEFAULT_RECONNECT_INITIAL_SECONDS = 5.0
 DEFAULT_RECONNECT_MAX_SECONDS = 300.0
+DEFAULT_RECONNECT_STABLE_SECONDS = 30.0
 DEFAULT_STARTUP_GRACE_SECONDS = 180.0
 
 
@@ -71,6 +72,7 @@ class LiveTelnetSpotSource(SpotSource):
         read_timeout_s: float = DEFAULT_READ_TIMEOUT_S,
         reconnect_initial_seconds: float = DEFAULT_RECONNECT_INITIAL_SECONDS,
         reconnect_max_seconds: float = DEFAULT_RECONNECT_MAX_SECONDS,
+        reconnect_stable_seconds: float = DEFAULT_RECONNECT_STABLE_SECONDS,
         startup_grace_seconds: float = DEFAULT_STARTUP_GRACE_SECONDS,
     ):
         self.host = host
@@ -81,6 +83,7 @@ class LiveTelnetSpotSource(SpotSource):
         self.read_timeout_s = read_timeout_s
         self.reconnect_initial_seconds = reconnect_initial_seconds
         self.reconnect_max_seconds = reconnect_max_seconds
+        self.reconnect_stable_seconds = max(0.0, reconnect_stable_seconds)
         self.startup_grace_seconds = max(0.0, startup_grace_seconds)
 
         self._lock = threading.Lock()
@@ -90,12 +93,22 @@ class LiveTelnetSpotSource(SpotSource):
         self._started_at: float | None = None
         self._last_error: str | None = None
         self._backoff_seconds = reconnect_initial_seconds
+        self._next_retry_at: float | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._sock: socket.socket | None = None
 
     def parse_line(self, line: str) -> Spot | None:  # pragma: no cover - abstract
         raise NotImplementedError
+
+    @property
+    def reconnect_backoff_remaining_seconds(self) -> float | None:
+        """Zbývající interní reconnect pauza tohoto konkrétního zdroje."""
+        with self._lock:
+            next_retry_at = self._next_retry_at
+        if next_retry_at is None:
+            return None
+        return max(0.0, next_retry_at - time.monotonic())
 
     def _ensure_started(self) -> None:
         if self._thread is not None:
@@ -182,11 +195,17 @@ class LiveTelnetSpotSource(SpotSource):
                 )
             if self._stop_event.is_set():
                 break
-            self._stop_event.wait(self._backoff_seconds)
-            self._backoff_seconds = min(self._backoff_seconds * 2, self.reconnect_max_seconds)
+            with self._lock:
+                delay = self._backoff_seconds
+                self._next_retry_at = time.monotonic() + delay
+            self._stop_event.wait(delay)
+            with self._lock:
+                self._next_retry_at = None
+                self._backoff_seconds = min(delay * 2, self.reconnect_max_seconds)
 
     def _connect_once(self) -> None:
         sock = socket.create_connection((self.host, self.port), timeout=self.connect_timeout_s)
+        connected_at = time.monotonic()
         with self._lock:
             self._sock = sock
         try:
@@ -194,10 +213,10 @@ class LiveTelnetSpotSource(SpotSource):
             sock.sendall(f"{self.callsign}\r\n".encode("ascii", errors="ignore"))
             if self.post_login_command:
                 sock.sendall(f"{self.post_login_command}\r\n".encode("ascii", errors="ignore"))
-            # Úspěšné připojení + odeslání loginu -- reset backoffu a chyby,
-            # i kdyby ještě nedorazil žádný rozpoznatelný spot.
+            # Samotný TCP handshake není stabilní relace. Uzel může login
+            # přijmout a ihned spojení zavřít; reset zde by pak každý pokus
+            # vracel na nejkratší interval a vytvářel retry/log smyčku.
             with self._lock:
-                self._backoff_seconds = self.reconnect_initial_seconds
                 self._last_error = None
                 self._connected = True
             buffer = ""
@@ -228,6 +247,8 @@ class LiveTelnetSpotSource(SpotSource):
             raise ConnectionError(f"{self.name}: server {self.host}:{self.port} ukončil spojení")
         finally:
             with self._lock:
+                if time.monotonic() - connected_at >= self.reconnect_stable_seconds:
+                    self._backoff_seconds = self.reconnect_initial_seconds
                 self._connected = False
                 if self._sock is sock:
                     self._sock = None
