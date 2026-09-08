@@ -44,9 +44,16 @@ class QSOVerificationResult:
 
 
 def _readonly_uri(path: str) -> str:
-    # SQLite přijímá Windows i UNC cesty s dopřednými lomítky. Parametr mode=ro
-    # je podstatný: chybějící soubor se nesmí vytvořit a zdroj nelze změnit.
-    sqlite_path = os.path.abspath(path).replace("\\", "/")
+    # Parametr mode=ro je podstatný: chybějící soubor se nesmí vytvořit a
+    # zdroj nelze změnit. U UNC cesty musí zpětná lomítka zůstat před URL
+    # quotingem. Tvar file://server/... by vytvořil URI authority, kterou
+    # běžné Python/SQLite sestavení bez SQLITE_ALLOW_URI_AUTHORITY odmítá.
+    absolute_path = os.path.abspath(path)
+    sqlite_path = (
+        absolute_path
+        if absolute_path.startswith("\\\\")
+        else absolute_path.replace("\\", "/")
+    )
     # immutable=1 zabraňuje SQLite sahat na journal/WAL/SHM vedle databáze.
     # Checker je proto určen pro neměnný snapshot/zálohu, nikoli pro soubor,
     # do kterého současně zapisuje Log4OM2.

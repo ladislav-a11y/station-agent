@@ -57,9 +57,9 @@ class Log4OMQSOCheckerTests(unittest.TestCase):
         self.assertIn("mode=ro", calls[0][0])
         self.assertTrue(calls[0][1]["uri"])
 
-    def test_readonly_uri_preserves_unc_authority_and_quotes_special_path(self):
+    def test_readonly_uri_encodes_unc_without_unsupported_uri_authority(self):
         uri = _readonly_uri(r"\\server\sdílená složka\log.sqlite")
-        self.assertTrue(uri.startswith("file://server/"))
+        self.assertTrue(uri.startswith("file:%5C%5Cserver%5C"))
         self.assertIn("%C3%AD", uri)
         self.assertIn("%20", uri)
         self.assertTrue(uri.endswith("?mode=ro&immutable=1"))

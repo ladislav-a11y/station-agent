@@ -199,6 +199,19 @@ uloženým ve Windows Credential Manageru. Přihlašovací údaje ani mapovací 
 nepatří do `config.yaml`, argumentů procesu nebo logů. Chyby přístupu vracejí
 obecnou diagnostiku bez cesty, údajů ovladače a osobních QSO dat.
 
+Kontrakt byl 8. září 2026 ověřen proti skutečné podporované Log4OM2 databázi
+na SMB share pod aktuálním Windows přihlášením. Jde o SQLite databázi s
+tabulkami `Informations` a `Log`; ověřená tabulka `Log` měla 98 sloupců a
+2 845 řádků. Klíčové sloupce jsou `callsign VARCHAR(50)`,
+`mode VARCHAR(30)` a `freq DECIMAL(18,3)`. `freq` je hlavní vysílací frekvence
+v kHz, zatímco `freqrx` není součástí pravidla běžné přesné shody. Kombinovaný
+unikátní index databáze zahrnuje i další hodnoty (`band`, `qsodate`), ale pro
+otázku „bylo toto callsign/mode/frequency již uděláno?“ je jednoznačným
+aplikačním pravidlem normalizovaná trojice výše; datum se záměrně neomezuje.
+Ověřený soubor používal journal mode `delete` a neměl vedle sebe `-wal`, `-shm`
+ani `-journal`. UNC URI se kóduje bez vzdálené URI authority, takže funguje i
+se standardním Python SQLite sestavením bez `SQLITE_ALLOW_URI_AUTHORITY`.
+
 `immutable=1` současně brání vzniku `-journal`, `-wal` a `-shm` souborů. Cesta
 proto musí mířit na neměnný snapshot/zálohu nebo databázi při vypnutém Log4OM2,
 ne na živý soubor, do kterého se právě zapisuje; jinak by SQLite smělo vrátit
