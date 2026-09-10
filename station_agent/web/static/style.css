@@ -27,6 +27,13 @@ h1 {
   font-size: 1rem;
 }
 
+.selected-score-status {
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .sources-status {
   display: flex;
   gap: 0.4rem;

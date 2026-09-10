@@ -87,6 +87,24 @@ function clearCandidateSelection() {
   renderTuneControls();
 }
 
+// Zobrazí průběžně přepočítávané skóre vybraného kandidáta i v horní
+// části GUI (header), ne jen v tabulce Kandidáti -- operátor tak vidí
+// aktuální skóre bez scrollování, dokud je nějaký kandidát vybraný.
+function renderSelectedScore() {
+  const el = document.getElementById("selected-score-status");
+  if (!state.selected) {
+    el.textContent = "";
+    return;
+  }
+  const match = state.candidates.find((c) => sameCandidateKey(c, state.selected));
+  const scoreTotal = match && match.score ? match.score.total : null;
+  if (scoreTotal == null) {
+    el.innerHTML = `Vybraný kandidát: <strong>${state.selected.callsign}</strong>`;
+    return;
+  }
+  el.innerHTML = `Vybraný kandidát: <strong>${state.selected.callsign}</strong> <span class="score-badge ${scoreClass(scoreTotal)}">${scoreTotal}</span>`;
+}
+
 function renderCandidates() {
   const tbody = document.getElementById("candidates-body");
   tbody.innerHTML = "";
@@ -100,6 +118,7 @@ function renderCandidates() {
   if (state.selected && !filtered.some((c) => sameCandidateKey(c, state.selected))) {
     state.selected = null;
   }
+  renderSelectedScore();
 
   if (filtered.length === 0) {
     const tr = document.createElement("tr");
