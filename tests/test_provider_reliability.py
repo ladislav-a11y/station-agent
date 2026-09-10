@@ -1,5 +1,6 @@
 import time
 import unittest
+from pathlib import Path
 
 from station_agent.adapters._common import normalize_reliability_percent
 from station_agent.adapters.dx_cluster import parse_spot_line
@@ -9,6 +10,7 @@ from station_agent.aggregator import Aggregator, group_spots_into_candidates
 from station_agent.db import Database
 from station_agent.models import Spot
 from station_agent.scoring import ScoringConfig
+from station_agent.web.serialization import candidate_to_dict
 
 
 class ProviderReliabilityNormalizationTests(unittest.TestCase):
@@ -79,6 +81,38 @@ class ProviderReliabilityCandidateTests(unittest.TestCase):
         self.db.insert_spot(self._spot("AA1AA", 97.5))
         restored = self.db.recent_spots(60, now=self.now)[0]
         self.assertEqual(restored.reliability_percent, 97.5)
+
+
+class GuiCandidateDetailReliabilityTests(unittest.TestCase):
+    """GUI detail kandidáta (rozbalený řádek po kliknutí) musí zobrazit
+    reliabilitu z dx clusterů v procentech, nebo výslovně uvést, že ji
+    provider neposkytl -- nikdy hodnotu nedopočítávat na frontendu
+    (viz DX_PROVIDER_RELIABILITY_RESEARCH.md)."""
+
+    def test_candidate_payload_exposes_reliability_percent_field(self):
+        candidate = Spot(
+            callsign="OK1ABC",
+            freq_hz=14_195_000,
+            mode="SSB",
+            timestamp=time.time(),
+            source="dx_cluster",
+        )
+        candidates = group_spots_into_candidates([candidate])
+        payload = candidate_to_dict(candidates[0])
+        self.assertIn("reliability_percent", payload)
+        self.assertIsNone(payload["reliability_percent"])
+
+    def test_gui_renders_reliability_in_candidate_detail_without_frontend_derivation(self):
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "station_agent" / "web" / "static" / "app.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("c.reliability_percent", script)
+        self.assertIn("candidate-detail-reliability", script)
+        # Chybějící hodnota se musí zobrazit jako výslovně neznámá, ne jako
+        # 0/50/95 -- viz DX_PROVIDER_RELIABILITY_RESEARCH.md.
+        self.assertIn("neznámá (provider ji neposkytl)", script)
 
 
 if __name__ == "__main__":

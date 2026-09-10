@@ -139,8 +139,14 @@ function renderCandidates() {
           .map((r) => `<li><strong>${r.factor}</strong>: ${r.points}/${r.max_points} -- ${r.detail}</li>`)
           .join("")
       : "";
+    const reliabilityPercent = c.reliability_percent != null
+      ? `${c.reliability_percent.toFixed(1)} %`
+      : "neznámá (provider ji neposkytl)";
     const reasonsDisplay = isSelected ? "block" : "none";
-    reasonsRow.innerHTML = `<td colspan="9"><ul class="reasons-list" style="display:${reasonsDisplay}">${reasons}</ul></td>`;
+    reasonsRow.innerHTML = `<td colspan="9"><div class="candidate-detail" style="display:${reasonsDisplay}">
+      <div class="candidate-detail-reliability">Reliabilita z DX clusteru: ${reliabilityPercent}</div>
+      <ul class="reasons-list">${reasons}</ul>
+    </div></td>`;
     tbody.appendChild(reasonsRow);
 
     row.addEventListener("click", () => selectCandidate(c));

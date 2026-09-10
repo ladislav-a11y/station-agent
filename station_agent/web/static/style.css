@@ -273,6 +273,10 @@ tr.candidate-row.selected {
   padding-left: 1.2rem;
 }
 
+.candidate-detail-reliability {
+  font-weight: 600;
+}
+
 .empty-row td {
   text-align: center;
   opacity: 0.6;
