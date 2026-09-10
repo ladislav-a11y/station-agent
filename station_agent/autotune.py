@@ -41,7 +41,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from station_agent.bandplan import freq_to_band
+from station_agent.bandplan import freq_to_band, validate_mode_frequency
 from station_agent.config import AutoTuneConfig
 from station_agent.db import Database
 from station_agent.models import Candidate, RigState
@@ -152,6 +152,24 @@ def apply_decision(
     if decision.action != "TUNE" or decision.candidate is None:
         return None
     candidate = decision.candidate
+
+    # Ochrana do hloubky: aggregator.build_candidates() už neplatné
+    # kombinace (freq_hz, mode) vyřazuje před sestavením kandidáta, ale
+    # tohle je poslední místo před samotným voláním rig rozhraní, takže
+    # kontrolu opakuje -- viz MODE_FREQUENCY_VALIDATION_RESEARCH.md bod 6.
+    # Neplatnou kombinaci nikdy nezapisujeme do riggu ani jí sami neměníme
+    # mód, jen ji zahodíme a nahlásíme jako chybu volajícímu.
+    validation = validate_mode_frequency(candidate.freq_hz, candidate.mode)
+    if not validation.valid:
+        logger.error(
+            "Kandidát %s (%s Hz, %s) odmítnut těsně před laděním: %s (%s)",
+            candidate.callsign, candidate.freq_hz, candidate.mode,
+            validation.reason, validation.rule_id or "bez pravidla",
+        )
+        raise ValueError(
+            f"kandidát {candidate.callsign} ({candidate.freq_hz} Hz, {candidate.mode}) "
+            f"neprošel kontrolou pásmového plánu: {validation.reason}"
+        )
 
     rig.set_frequency(candidate.freq_hz)
     rig.set_mode(candidate.mode)

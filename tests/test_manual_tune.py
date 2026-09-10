@@ -12,6 +12,7 @@ import unittest
 import urllib.error
 import urllib.request
 
+from station_agent.models import Candidate
 from station_agent.web import server as server_module
 from station_agent.web.server import create_server
 from tests.test_web_api import build_test_app_state
@@ -128,6 +129,30 @@ class ManualTuneAppStateTests(unittest.TestCase):
         self.assertTrue(self.app_state.autotune_engine.cfg.enabled)
         self.assertFalse(self.app_state.autotune_engine.cfg.hold)
 
+    def test_manual_tune_rejects_invalid_mode_frequency_combination_without_touching_rig(self):
+        """Ochrana do hloubky (viz MODE_FREQUENCY_VALIDATION_RESEARCH.md bod 6):
+        i kdyby se kvůli chybě jinde v kódu do latest_candidates dostal
+        kandidát s neplatnou kombinací (freq_hz, mode) mimo běžnou cestu
+        přes aggregator.build_candidates(), NALADIT ho nesmí poslat do
+        riggu -- musí selhat a stav (last_decision) reportovat jako chybu."""
+        self.app_state.refresh_candidates()
+        bad_candidate = Candidate(
+            callsign="ZS6DEF",
+            freq_hz=7_000_000,  # CW segment 40 m
+            mode="SSB",  # SSB je zde neplatné
+            band="40m",
+            first_seen=0.0,
+            last_seen=0.0,
+        )
+        self.app_state.latest_candidates = [bad_candidate]
+
+        with self.assertRaises(ValueError):
+            self.app_state.manual_tune("ZS6DEF", 7_000_000, "SSB")
+
+        self.assertEqual(self.app_state.rig.set_frequency_calls, [])
+        self.assertEqual(self.app_state.rig.set_mode_calls, [])
+        self.assertEqual(self.app_state.last_decision.action, "ERROR")
+
     def test_manual_tune_rejects_stale_selection_after_candidate_list_changed(self):
         """Reprodukuje reálný scénář: operátor vybere kandidáta v GUI, mezitím
         se seznam obnoví (spot expiroval / filtr se změnil) a kandidát zmizí
@@ -234,6 +259,31 @@ class ManualTuneApiTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(data["last_decision"]["action"], "NONE")
+        self.assertEqual(data["rig"], status_before["rig"])
+
+    def test_post_tune_invalid_mode_frequency_combination_returns_502_without_moving_rig(self):
+        """API úroveň stejné ochrany do hloubky jako
+        test_manual_tune_rejects_invalid_mode_frequency_combination_without_touching_rig:
+        neplatná kombinace se do latest_candidates dostat běžně nemůže
+        (aggregator ji vyfiltruje), ale kdyby se přece jen dostala, /api/tune
+        ji nesmí poslat do riggu -- musí vrátit 502 s diagnostickým hlášením."""
+        _, status_before = self._get("/api/status")
+        bad_candidate = Candidate(
+            callsign="ZS6DEF",
+            freq_hz=7_000_000,
+            mode="SSB",
+            band="40m",
+            first_seen=0.0,
+            last_seen=0.0,
+        )
+        self.app_state.latest_candidates = [bad_candidate]
+
+        status, data = self._post_json(
+            "/api/tune", {"callsign": "ZS6DEF", "freq_hz": 7_000_000, "mode": "SSB"}
+        )
+
+        self.assertEqual(status, 502)
+        self.assertIn("error", data)
         self.assertEqual(data["rig"], status_before["rig"])
 
     def test_get_tune_endpoint_not_allowed(self):

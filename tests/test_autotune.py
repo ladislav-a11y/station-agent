@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from station_agent.autotune import AutoTuneEngine, apply_decision
+from station_agent.autotune import AutoTuneEngine, TuneDecision, apply_decision
 from station_agent.config import AutoTuneConfig
 from station_agent.db import Database
 from station_agent.models import Candidate, RigState, ScoreResult
@@ -221,6 +221,25 @@ class ApplyDecisionTests(unittest.TestCase):
         result = apply_decision(rig, decision)
         self.assertIsNone(result)
         self.assertEqual(rig.set_frequency_calls, [])
+
+    def test_apply_tune_rejects_invalid_mode_frequency_combination_without_touching_rig(self):
+        """Ochrana do hloubky (viz MODE_FREQUENCY_VALIDATION_RESEARCH.md bod 6):
+        i kdyby se do TuneDecision dostal kandidát s neplatnou kombinací
+        (freq_hz, mode) mimo běžnou cestu přes aggregator.build_candidates(),
+        apply_decision ho nesmí poslat do riggu ani mu potichu změnit mód."""
+        rig = MockRig()
+        db = Database(":memory:")
+        candidate = make_candidate("ZS6DEF", 90, band="40m", mode="SSB")
+        candidate.freq_hz = 7_000_000  # CW segment, SSB je zde neplatný
+        decision = TuneDecision("TUNE", candidate, "test")
+
+        with self.assertRaises(ValueError):
+            apply_decision(rig, decision, db)
+
+        self.assertEqual(rig.set_frequency_calls, [])
+        self.assertEqual(rig.set_mode_calls, [])
+        self.assertEqual(db.autotune_history(), [])
+        db.close()
 
 
 if __name__ == "__main__":

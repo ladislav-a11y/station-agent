@@ -13,6 +13,8 @@ station_agent/
 ├── dxcc.py              # vestavěná bezpečná fallback prefix tabulka
 ├── country_lookup.py    # Log4OM2 country data + další DXCC fallbacky
 ├── bearing.py            # Maidenhead <-> lat/lon, great-circle bearing/distance
+├── modes.py               # normalize_mode() -- katalog podporovaných módů
+├── bandplan.py             # pásmo z frekvence + validate_mode_frequency() (IARU R1)
 ├── scoring.py             # transparentní scoring 0-100 s rozpisem důvodů
 ├── aggregator.py           # slučuje spoty z adaptérů do kandidátů
 ├── autotune.py              # rozhodovací logika AUTO TUNE / HOLD
@@ -96,6 +98,26 @@ jako reálná odpověď externí služby (viz AGENTS.md pravidlo 6).
    je reálně ověřeno proti živé službě).
 3. Zaregistruj adaptér v `cli.py` podle configu (`sources.muj_zdroj.enabled`).
 4. Přidej testy parseru do `tests/test_adapters_parsing.py`.
+
+## Validace kombinace (frekvence, mód)
+
+`bandplan.validate_mode_frequency(freq_hz, mode)` ověřuje dvojici proti
+verzovanému katalogu segmentů IARU Region 1 HF bandplánu (viz
+`MODE_FREQUENCY_VALIDATION_RESEARCH.md` pro rešerši a zdroje). Vrací
+strukturovaný `ModeFrequencyValidation` (ne pouhý `bool`), včetně `rule_id`
+a lidsky čitelného důvodu pro diagnostiku.
+
+Kontrola se volá na dvou místech, ne jen jednou:
+
+1. `Aggregator.build_candidates()` vyřadí neplatné spoty ještě před
+   sestavením `Candidate` -- neplatná kombinace se tak nikdy nedostane ani
+   do seznamu kandidátů v GUI.
+2. `autotune.apply_decision()` kontrolu opakuje jako ochranu do hloubky
+   těsně před voláním `RigControl.set_frequency`/`set_mode` -- ať už pro
+   AUTO TUNE, nebo pro ruční NALADIT (`AppState.manual_tune`). Kdyby se
+   neplatná kombinace přesto dostala až sem (např. budoucí změnou jinde v
+   kódu), `apply_decision` ji zahodí a nahlásí jako chybu (`ValueError`),
+   aniž by rig kontaktovala nebo módu sama cokoli měnila.
 
 ## Bezpečnostní hranice v architektuře
 
