@@ -400,6 +400,14 @@ obnoví. Vybraného kandidáta lze explicitním tlačítkem zapsat do lokální 
 včetně frekvence, módu, pásma a vypočteného bearingu. Tento krok nikdy
 nepotvrzuje ani neukládá záznam v Log4OM2.
 
+Dokud je v tabulce Kandidáti vybraný kandidát (kliknutím na řádek), zobrazuje
+se jeho průběžně přepočítávané skóre i v horní liště GUI vedle stavu riggu.
+Indikátor čerpá ze stejného zdroje jako sloupec Skóre (`score.total` z
+`/api/candidates`, obnovované každých 5 s) a aktualizuje se spolu s tabulkou;
+bez výběru, po zrušení výběru, po NALADIT nebo po zapnutí AUTO TUNE (které
+ruční výběr ruší) je skrytý. Rozhodovací logiku drží
+`web/static/selected_score.js` (`StationSelectedScore.resolve`).
+
 Band-opening notifikace vznikají při překročení konfigurovaného počtu
 odlišných stanic na pásmu. V jednom cyklu mohou vzniknout události pro všechna
 nově otevřená pásma; opakované otevření stejného pásma respektuje cooldown a

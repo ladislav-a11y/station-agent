@@ -90,19 +90,22 @@ function clearCandidateSelection() {
 // Zobrazí průběžně přepočítávané skóre vybraného kandidáta i v horní
 // části GUI (header), ne jen v tabulce Kandidáti -- operátor tak vidí
 // aktuální skóre bez scrollování, dokud je nějaký kandidát vybraný.
+// Volá se z renderCandidates(), tj. při každém refreshi /api/candidates
+// i při každé změně výběru; rozhodnutí "co zobrazit" dělá
+// StationSelectedScore.resolve (selected_score.js), aby bylo testovatelné.
 function renderSelectedScore() {
   const el = document.getElementById("selected-score-status");
-  if (!state.selected) {
+  const view = StationSelectedScore.resolve(state.selected, state.candidates, sameCandidateKey);
+  el.hidden = view === null;
+  if (view === null) {
     el.textContent = "";
     return;
   }
-  const match = state.candidates.find((c) => sameCandidateKey(c, state.selected));
-  const scoreTotal = match && match.score ? match.score.total : null;
-  if (scoreTotal == null) {
-    el.innerHTML = `Vybraný kandidát: <strong>${state.selected.callsign}</strong>`;
+  if (view.scoreTotal == null) {
+    el.innerHTML = `Vybraný kandidát: <strong>${view.callsign}</strong>`;
     return;
   }
-  el.innerHTML = `Vybraný kandidát: <strong>${state.selected.callsign}</strong> <span class="score-badge ${scoreClass(scoreTotal)}">${scoreTotal}</span>`;
+  el.innerHTML = `Vybraný kandidát: <strong>${view.callsign}</strong> <span class="score-badge ${scoreClass(view.scoreTotal)}">${view.scoreTotal}</span>`;
 }
 
 function renderCandidates() {
