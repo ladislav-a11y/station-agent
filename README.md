@@ -400,13 +400,28 @@ obnoví. Vybraného kandidáta lze explicitním tlačítkem zapsat do lokální 
 včetně frekvence, módu, pásma a vypočteného bearingu. Tento krok nikdy
 nepotvrzuje ani neukládá záznam v Log4OM2.
 
-Dokud je v tabulce Kandidáti vybraný kandidát (kliknutím na řádek), zobrazuje
-se jeho průběžně přepočítávané skóre i v horní liště GUI vedle stavu riggu.
-Indikátor čerpá ze stejného zdroje jako sloupec Skóre (`score.total` z
-`/api/candidates`, obnovované každých 5 s) a aktualizuje se spolu s tabulkou;
-bez výběru, po zrušení výběru, po NALADIT nebo po zapnutí AUTO TUNE (které
-ruční výběr ruší) je skrytý. Rozhodovací logiku drží
-`web/static/selected_score.js` (`StationSelectedScore.resolve`).
+Horní lišta GUI (vedle stavu riggu) ukazuje průběžně přepočítávané skóre
+vybraného kandidáta, a to ve dvou podobách:
+
+- **`AUTO TUNE: <callsign> <skóre>`** (po ručním NALADIT `Naladěno: ...`) --
+  stanice, kterou AUTO TUNE (nebo NALADIT) skutečně vybral a na kterou je rig
+  naladěný. Skóre je `rig.score` z `/api/status`: tutéž hodnotu backend
+  přepočítává při každé obnově kandidátů (`app_state._sync_current_score`) a
+  AUTO TUNE ji používá při porovnávání s ostatními kandidáty, GUI ji tedy
+  jen zobrazuje. Položka se aktualizuje s každým refreshem statusu (5 s) i
+  hned po NALADIT / změně režimu AUTO TUNE.
+- **`Vybraný kandidát: <callsign> <skóre>`** -- kandidát označený kliknutím
+  na řádek v tabulce Kandidáti; skóre je `score.total` z `/api/candidates`
+  (stejný zdroj jako sloupec Skóre) a mění se spolu s tabulkou. Po zrušení
+  označení, po NALADIT nebo po zapnutí AUTO TUNE (které ruční označení ruší)
+  položka zmizí; je-li označený kandidát totožný s naladěnou stanicí,
+  zobrazí se jen jednou.
+
+Bez naladěné stanice (rig zná jen frekvenci/mód bez callsignu, např. po
+startu) a bez označeného kandidáta je indikátor skrytý a nezabírá místo.
+Rozhodovací logiku drží `web/static/selected_score.js`
+(`StationSelectedScore.resolveHeader`), vykreslení `app.js`
+`renderSelectedScore()`.
 
 Band-opening notifikace vznikají při překročení konfigurovaného počtu
 odlišných stanic na pásmu. V jednom cyklu mohou vzniknout události pro všechna

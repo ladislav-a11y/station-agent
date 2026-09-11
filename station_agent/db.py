@@ -75,6 +75,20 @@ CREATE TABLE IF NOT EXISTS filter_preferences (
     bands_json TEXT NOT NULL,
     modes_json TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS autotune_preferences (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    enabled INTEGER NOT NULL,
+    hold INTEGER NOT NULL,
+    min_hold_seconds REAL NOT NULL,
+    min_score_delta REAL NOT NULL,
+    min_score INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS log4om_filter_preference (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    exclude_worked_qsos INTEGER NOT NULL
+);
 """
 
 
@@ -310,6 +324,77 @@ class Database:
             return None
         return bands, modes
 
+    # -- GUI AUTO TUNE preferences -----------------------------------------
+
+    def save_autotune_preferences(
+        self,
+        enabled: bool,
+        hold: bool,
+        min_hold_seconds: float,
+        min_score_delta: float,
+        min_score: int,
+    ) -> None:
+        """Atomicky zapamatuje poslední hodnoty formuláře AUTO TUNE (viz
+        web/server.py POST /api/autotune), aby se po restartu obnovilo
+        stejné nastavení, ne výchozí hodnoty z config.yaml."""
+        self._conn.execute(
+            """
+            INSERT INTO autotune_preferences
+                (id, enabled, hold, min_hold_seconds, min_score_delta, min_score)
+            VALUES (1, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                enabled = excluded.enabled,
+                hold = excluded.hold,
+                min_hold_seconds = excluded.min_hold_seconds,
+                min_score_delta = excluded.min_score_delta,
+                min_score = excluded.min_score
+            """,
+            (int(enabled), int(hold), min_hold_seconds, min_score_delta, min_score),
+        )
+        self._conn.commit()
+
+    def load_autotune_preferences(self) -> dict[str, object] | None:
+        """Vrátí poslední uložené AUTO TUNE nastavení, nebo ``None`` před
+        první uloženou volbou."""
+        row = self._conn.execute(
+            "SELECT enabled, hold, min_hold_seconds, min_score_delta, min_score "
+            "FROM autotune_preferences WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "enabled": bool(row["enabled"]),
+            "hold": bool(row["hold"]),
+            "min_hold_seconds": row["min_hold_seconds"],
+            "min_score_delta": row["min_score_delta"],
+            "min_score": row["min_score"],
+        }
+
+    # -- GUI Log4OM2 "skrýt odbavené" filtr ----------------------------------
+
+    def save_exclude_worked_qsos_preference(self, enabled: bool) -> None:
+        """Atomicky zapamatuje poslední stav přepínače "Skrýt přesná QSO
+        potvrzená v Log4OM2" (viz web/server.py POST /api/filters)."""
+        self._conn.execute(
+            """
+            INSERT INTO log4om_filter_preference (id, exclude_worked_qsos)
+            VALUES (1, ?)
+            ON CONFLICT(id) DO UPDATE SET exclude_worked_qsos = excluded.exclude_worked_qsos
+            """,
+            (int(enabled),),
+        )
+        self._conn.commit()
+
+    def load_exclude_worked_qsos_preference(self) -> bool | None:
+        """Vrátí poslední uložený stav přepínače, nebo ``None`` před první
+        uloženou volbou."""
+        row = self._conn.execute(
+            "SELECT exclude_worked_qsos FROM log4om_filter_preference WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return bool(row["exclude_worked_qsos"])
+
     # -- AUTO TUNE audit log ------------------------------------------------
 
     def log_autotune(
@@ -401,6 +486,8 @@ class Database:
         "band_openings",
         "qso_history",
         "filter_preferences",
+        "autotune_preferences",
+        "log4om_filter_preference",
     )
 
     def clear_all_data(self) -> dict[str, int]:

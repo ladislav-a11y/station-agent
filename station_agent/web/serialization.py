@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from station_agent.autotune import TuneDecision
+from station_agent.bandplan import freq_to_band
 from station_agent.models import Candidate, RigState
 
 
@@ -56,6 +57,10 @@ def rig_state_to_dict(state: RigState | None) -> dict | None:
         return None
     return {
         "freq_hz": state.freq_hz,
+        # Odvozené pásmo naladěné frekvence (None mimo amatérská pásma) --
+        # GUI podle něj vybírá, pro které pásmo ukázat souhrn propagace,
+        # aniž by duplikovalo bandplan na klientu.
+        "band": freq_to_band(state.freq_hz),
         "mode": state.mode,
         "callsign": state.callsign,
         "tuned_at": state.tuned_at,

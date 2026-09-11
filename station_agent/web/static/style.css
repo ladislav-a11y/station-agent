@@ -7,19 +7,68 @@ body {
   font-family: system-ui, sans-serif;
   margin: 0;
   padding: 0 1.5rem 3rem;
+  background: Canvas;
 }
 
-header {
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 1rem 0;
+  gap: 1rem;
+  padding: 0.75rem 0;
   border-bottom: 1px solid var(--border);
+  background: Canvas;
+}
+
+.app-title {
+  flex: 0 0 auto;
+  min-width: 10rem;
+}
+
+.eyebrow {
+  margin: 0;
+  color: color-mix(in srgb, CanvasText 65%, Canvas);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 h1 {
-  font-size: 1.4rem;
+  font-size: 1.35rem;
   margin: 0;
+}
+
+.live-status {
+  display: grid;
+  grid-template-columns: minmax(15rem, 1.6fr) repeat(4, minmax(7rem, 1fr));
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.status-card {
+  min-width: 0;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, CanvasText 4%, Canvas);
+}
+
+.status-card-primary {
+  border-color: color-mix(in srgb, #1976d2 55%, var(--border));
+}
+
+.status-label {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: color-mix(in srgb, CanvasText 65%, Canvas);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .rig-status {
@@ -27,17 +76,116 @@ h1 {
   font-size: 1rem;
 }
 
+.rig-primary {
+  font-weight: 700;
+}
+
+.rig-secondary {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.live-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: #c62828;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+}
+
 .selected-score-status {
   font-size: 0.95rem;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.8rem;
+  flex-wrap: wrap;
 }
+
+/* Jedna položka indikátoru: naladěná stanice (AUTO TUNE / NALADIT) nebo
+   kandidát označený v tabulce; obě mohou být vidět současně. */
+.selected-score-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.selected-score-tuned {
+  padding: 0.15rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+/* Desktop: hlavní pracovní seznam (kandidáti) vlevo, rychlé filtry a
+   AUTO TUNE vpravo, podpůrné informace až pod nimi, legenda úplně dole.
+   Pořadí v DOM odpovídá pořadí pro úzká okna (viz media query níže). */
+.dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+  /* Řádek s filtry má výšku podle obsahu, řádek s AUTO TUNE pohltí zbytek
+     výšky kandidátů -- jinak by se výška dlouhé tabulky rozdělila mezi oba
+     řádky a AUTO TUNE by "spadl" hluboko pod rychlé filtry s prázdnou
+     mezerou. */
+  grid-template-rows: auto 1fr auto auto auto;
+  grid-template-areas:
+    "candidates filters"
+    "candidates autotune"
+    "propagation propagation"
+    "notifications history"
+    "legend legend";
+  gap: 1rem;
+  max-width: 1500px;
+  margin: 0 auto;
+  align-items: start;
+}
+
+.dashboard > .panel {
+  margin-top: 1rem;
+  min-width: 0;
+}
+
+.candidates-panel { grid-area: candidates; }
+.filters { grid-area: filters; }
+.autotune { grid-area: autotune; }
+.propagation-panel { grid-area: propagation; }
+.notifications-panel { grid-area: notifications; }
+.history-panel { grid-area: history; }
+.legend { grid-area: legend; }
+
+.autotune-status {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.autotune-status-on { color: #2e7d32; }
+.autotune-status-hold { color: #ef6c00; }
+.autotune-status-off { opacity: 0.75; }
 
 /* `display: flex` by jinak přebilo atribut hidden -- bez výběru kandidáta
    nesmí indikátor v headeru zabírat ani prázdné místo. */
 .selected-score-status[hidden] {
   display: none;
+}
+
+.sources-detail summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+.sources-detail summary::-webkit-details-marker {
+  display: none;
+}
+
+.sources-detail[open] summary {
+  margin-bottom: 0.3rem;
 }
 
 .sources-status {
@@ -50,13 +198,31 @@ h1 {
   font-size: 0.75rem;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  white-space: nowrap;
+  /* Karta Zdroje v hlavičce je úzká -- dlouhé jméno ("DX Cluster (HAMSERVE):
+     ● V pořádku") se musí zalomit, ne oříznout. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  cursor: help;
+  border: 1px solid rgba(0,0,0,0.1);
 }
 
-.source-ok { background: #2e7d3244; }
-.source-pending { background: #8884; }
-.source-error { background: #c6282844; }
-.source-backoff { background: #f9a82544; }
+.source-ok { background: #2e7d3244; border-color: #2e7d32; }
+.source-pending { background: #8884; border-color: #999; }
+.source-error { background: #c6282844; border-color: #c62828; }
+.source-backoff { background: #f9a82544; border-color: #f9a825; }
+
+/* Konkrétní chyba je vidět přímo v rozbaleném detailu, ne jen v tooltipu. */
+.source-error-note {
+  display: block;
+  white-space: normal;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.sources-worst-error { color: #c62828; }
+.sources-worst-backoff { color: #ef6c00; }
+.sources-worst-ok { color: #2e7d32; }
 
 .shutdown-button {
   background: #c62828;
@@ -79,7 +245,6 @@ h1 {
 }
 
 .panel {
-  margin-top: 1.25rem;
   padding: 1rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -88,6 +253,28 @@ h1 {
 .panel h2 {
   margin-top: 0;
   font-size: 1.05rem;
+}
+
+.candidates-panel h2::after {
+  content: "  •  vyberte stanici pro další akci";
+  color: color-mix(in srgb, CanvasText 55%, Canvas);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.filter-summary {
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  background: color-mix(in srgb, CanvasText 5%, Canvas);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.advanced-filters summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
 }
 
 .propagation-summary,
@@ -109,6 +296,77 @@ h1 {
   padding: 0.25rem 0.55rem;
   font-family: monospace;
   font-size: 0.85rem;
+  cursor: help;
+}
+
+.legend {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.75rem;
+  background: rgba(0,0,0,0.02);
+  border-radius: 4px;
+  border-left: 3px solid var(--border);
+}
+
+.legend summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.2rem 0;
+}
+
+.legend[open] summary {
+  margin-bottom: 0.3rem;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 1rem;
+  white-space: nowrap;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.2);
+}
+
+.legend-dot-ok { background: #2e7d3244; border-color: #2e7d32; }
+.legend-dot-pending { background: #8884; border-color: #999; }
+.legend-dot-backoff { background: #f9a82544; border-color: #f9a825; }
+.legend-dot-error { background: #c6282844; border-color: #c62828; }
+
+.secondary-button {
+  opacity: 0.85;
+}
+
+.secondary-button:disabled {
+  opacity: 0.4;
+}
+
+.autotune-settings {
+  margin-bottom: 0.75rem;
+}
+
+.autotune-settings summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.autotune-settings[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.propagation-outlook summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.propagation-outlook[open] summary {
+  margin-bottom: 0.5rem;
 }
 
 .filter-group {
@@ -178,14 +436,68 @@ h1 {
 }
 
 .decision {
-  margin-top: 0.75rem;
-  font-family: monospace;
+  margin: 0 0 0.75rem;
   font-size: 0.9rem;
 }
 
+.decision:empty {
+  display: none;
+}
+
+.decision-title {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, CanvasText 65%, Canvas);
+}
+
+.decision-reason {
+  font-family: monospace;
+}
+
+.decision-error .decision-title {
+  color: #c62828;
+}
+
 .hold-countdown {
-  font-weight: bold;
-  font-size: 0.85rem;
+  display: block;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.4rem;
+  border-left: 4px solid #1976d2;
+  background: color-mix(in srgb, #1976d2 12%, Canvas);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.hold-countdown-on {
+  border-left-color: #2e7d32;
+  background: color-mix(in srgb, #2e7d32 14%, Canvas);
+}
+
+.hold-countdown-hold {
+  border-left-color: #ef6c00;
+  background: color-mix(in srgb, #ef6c00 14%, Canvas);
+}
+
+.hold-countdown-off {
+  border-left-color: #999;
+  background: color-mix(in srgb, CanvasText 6%, Canvas);
+}
+
+.hold-countdown:empty {
+  display: none;
+}
+
+/* Neaktivní režim je vizuálně sekundární; aktivní režim má zvýrazněný rámeček
+   a jeho tlačítko je jen potvrzením stavu. */
+.autotune-mode-control:not(.active) button {
+  opacity: 0.8;
+}
+
+.autotune-mode-control.active button {
+  font-weight: 700;
 }
 
 .safety-note {
@@ -204,6 +516,31 @@ th, td {
   padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+}
+
+/* Připnuté záhlaví tabulky kandidátů pod připnutou hlavičkou aplikace;
+   --app-header-height nastavuje app.js syncHeaderHeight(). */
+#candidates-table thead th {
+  position: sticky;
+  top: var(--app-header-height, 0px);
+  z-index: 5;
+  background: Canvas;
+  box-shadow: 0 1px 0 var(--border);
+}
+
+.detail-toggle {
+  font-size: 0.8rem;
+  padding: 0.15rem 0.5rem;
+  white-space: nowrap;
+}
+
+.detail-toggle[aria-expanded="true"] {
+  font-weight: 700;
+}
+
+.candidate-detail-sources {
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
 }
 
 tr.candidate-row {
@@ -226,15 +563,35 @@ tr.candidate-row.selected {
   margin: 0 0 0.5rem;
 }
 
-.tune-controls {
+/* Pevný pruh nad tabulkou: co je vybrané + akce nad výběrem. */
+.selection-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, CanvasText 4%, Canvas);
+}
+
+.tune-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tune-controls button {
+  min-height: 2.2rem;
 }
 
 #tune-button {
   font-weight: 700;
+  border: 1px solid #1976d2;
+  background: color-mix(in srgb, #1976d2 18%, Canvas);
 }
 
 #tune-button:disabled {
@@ -242,9 +599,18 @@ tr.candidate-row.selected {
   cursor: not-allowed;
 }
 
+.secondary-note {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
 .tune-selected {
   font-family: monospace;
   font-size: 0.9rem;
+}
+
+.tune-selected.has-selection {
+  color: #1976d2;
 }
 
 .tune-result {
@@ -269,11 +635,13 @@ tr.candidate-row.selected {
   padding: 0.1em 0.4em;
   border-radius: 6px;
   font-weight: 700;
+  cursor: help;
+  border: 1px solid rgba(0,0,0,0.1);
 }
 
-.score-high { background: #2e7d3244; }
-.score-mid { background: #f9a82544; }
-.score-low { background: #c6282844; }
+.score-high { background: #2e7d3244; border-color: #2e7d32; }
+.score-mid { background: #f9a82544; border-color: #f9a825; }
+.score-low { background: #c6282844; border-color: #c62828; }
 
 .reasons-row td {
   padding-top: 0;
@@ -294,6 +662,72 @@ tr.candidate-row.selected {
   text-align: center;
   opacity: 0.6;
   padding: 1.5rem;
+}
+
+@media (max-width: 1100px) {
+  .app-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .live-status {
+    order: 3;
+    flex-basis: 100%;
+    grid-template-columns: minmax(14rem, 2fr) repeat(4, minmax(8rem, 1fr));
+  }
+
+  .dashboard {
+    grid-template-columns: minmax(0, 1.6fr) minmax(16rem, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  body {
+    padding: 0 0.75rem 2rem;
+  }
+
+  /* Úzké okno: jeden sloupec v pořadí DOM -- provozní stav (hlavička),
+     kandidáti, rychlé filtry, AUTO TUNE, až potom podpůrné informace. */
+  .dashboard {
+    display: block;
+  }
+
+  .live-status {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .status-card-primary {
+    grid-column: 1 / -1;
+  }
+
+  .selection-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard > .panel {
+    margin-top: 0.75rem;
+  }
+
+  .candidates-panel {
+    overflow-x: auto;
+  }
+
+  /* Panel je v úzkém okně vodorovný scroll kontejner, takže sticky záhlaví
+     by se lepilo k němu (ne k oknu) a posun o výšku hlavičky by ho jen
+     odsunul dovnitř tabulky -- v úzkém okně je záhlaví běžné. */
+  #candidates-table thead th {
+    position: static;
+  }
+
+  table {
+    min-width: 760px;
+  }
+
+  .candidates-panel h2::after {
+    display: block;
+    margin-top: 0.2rem;
+  }
 }
 
 .event-list {

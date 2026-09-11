@@ -104,6 +104,16 @@ def build_app_state(config: AppConfig) -> AppState:
             valid_modes = [mode for mode in saved_modes if mode in SUPPORTED_MODES]
             config.bands = valid_bands
             config.modes = valid_modes
+        saved_autotune = db.load_autotune_preferences()
+        if saved_autotune is not None:
+            # Poslední hodnoty formuláře AUTO TUNE (viz web/server.py POST
+            # /api/autotune) musí po restartu nahradit výchozí hodnoty z
+            # config.yaml -- stejný princip jako u saved_filters výše.
+            config.autotune.enabled = bool(saved_autotune["enabled"])
+            config.autotune.hold = bool(saved_autotune["hold"])
+            config.autotune.min_hold_seconds = float(saved_autotune["min_hold_seconds"])
+            config.autotune.min_score_delta = float(saved_autotune["min_score_delta"])
+            config.scoring.min_score = int(saved_autotune["min_score"])
         rig = create_rig_control(config.rig)
         try:
             qth_latlon = config.station.get_latlon()
@@ -199,6 +209,13 @@ def build_app_state(config: AppConfig) -> AppState:
             else None
         ),
     )
+    saved_exclude_worked_qsos = db.load_exclude_worked_qsos_preference()
+    if saved_exclude_worked_qsos is not None:
+        # Stejné pravidlo jako ve web/server.py POST /api/filters -- přepínač
+        # nesmí vypadat aktivní, dokud není checker skutečně nakonfigurovaný.
+        app_state.log4om_filter_enabled = (
+            saved_exclude_worked_qsos and app_state.log4om_checker is not None
+        )
     if config.rig.mode == "live":
         try:
             app_state.sync_rig_state_from_hardware()

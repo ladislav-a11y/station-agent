@@ -7,30 +7,78 @@
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-<header>
-  <h1>Station Agent</h1>
-  <div id="selected-score-status" class="selected-score-status" hidden></div>
-  <div id="rig-status" class="rig-status">načítám stav riggu...</div>
-  <div id="sources-status" class="sources-status"></div>
-  <div id="propagation-status" class="propagation-status">Kp: načítám...</div>
-  <div id="log4om-status" class="sources-status">Log4OM2: ověření čeká...</div>
+<header class="app-header" id="app-header">
+  <div class="app-title">
+    <p class="eyebrow">DX asistent</p>
+    <h1>Station Agent</h1>
+  </div>
+  <div class="live-status" aria-label="Živý stav stanice">
+    <div class="status-card status-card-primary">
+      <span class="status-label">Naladěná stanice</span>
+      <div id="selected-score-status" class="selected-score-status" hidden></div>
+      <div id="rig-status" class="rig-status">načítám stav riggu...</div>
+    </div>
+    <div class="status-card">
+      <span class="status-label">AUTO TUNE</span>
+      <div id="autotune-status" class="autotune-status">načítám...</div>
+    </div>
+    <div class="status-card">
+      <span class="status-label">Zdroje</span>
+      <details class="sources-detail">
+        <summary id="sources-summary">načítám...</summary>
+        <div id="sources-status" class="sources-status"></div>
+      </details>
+    </div>
+    <div class="status-card status-card-compact">
+      <span class="status-label">Šíření</span>
+      <div id="propagation-status" class="propagation-status">Kp: načítám...</div>
+    </div>
+    <div class="status-card">
+      <span class="status-label">Kontrola historie Log4OM2</span>
+      <div id="log4om-status" class="sources-status">inicializace...</div>
+    </div>
+  </div>
   <button type="button" id="shutdown-button" class="shutdown-button">Ukončit</button>
 </header>
 
+<main class="dashboard">
+<section class="panel candidates-panel">
+  <h2>Kandidáti</h2>
+  <p class="hint">Klikni na řádek pro výběr kandidáta. Rozpad skóre otevřeš tlačítkem <em>Důvody skóre</em> v řádku.</p>
+  <div class="selection-bar">
+    <span id="tune-selected" class="tune-selected">Vybraný kandidát: žádný</span>
+    <div class="tune-controls">
+      <button type="button" id="tune-button" disabled>Naladit přijímač</button>
+      <button type="button" id="qso-button" class="secondary-button" disabled title="Neukládá QSO do Log4OM2">Zapsat do místní historie</button>
+      <span class="secondary-note">neukládá QSO do Log4OM2</span>
+    </div>
+  </div>
+  <div id="tune-result" class="tune-result"></div>
+  <table id="candidates-table">
+    <thead>
+      <tr>
+        <th title="Volací značka stanice">Callsign</th>
+        <th title="Země/DXCC entity (kontinent v závorce)">DXCC / země</th>
+        <th title="Pracovní frekvence v MHz">Frekvence</th>
+        <th title="Druh modulace (SSB, FT8, atd.)">Mód</th>
+        <th title="Jak stará jsou data o stanici">Čerstvost</th>
+        <th title="Zdroje, které kandidáta nahlásily (plný seznam v tooltipu buňky)">Zdroje</th>
+        <th title="Vyhodnocovací skóre 0-100 (barva: zelená 70+, oranž 40-69, červ 0-39)">Skóre</th>
+        <th title="Azimuth a vzdálenost od vašeho QTH">Bearing / Vzdálenost</th>
+        <th title="Rozpad skóre a reliabilita zdroje">Detail</th>
+      </tr>
+    </thead>
+    <tbody id="candidates-body"></tbody>
+  </table>
+</section>
+
 <section class="panel filters">
-  <h2>Filtry</h2>
+  <h2>Rychlé filtry</h2>
   <div class="filter-group">
     <label class="filter-label" for="filter-preset">Předvolba:</label>
     <select id="filter-preset"><option value="">Vlastní</option></select>
   </div>
-  <div class="filter-group">
-    <span class="filter-label">Módy:</span>
-    <span id="mode-filters"></span>
-  </div>
-  <div class="filter-group">
-    <span class="filter-label">Pásma:</span>
-    <span id="band-filters"></span>
-  </div>
+  <div id="filter-summary" class="filter-summary">Zobrazeno 0 z 0 kandidátů.</div>
   <div class="filter-group" id="log4om-filter-group">
     <span class="filter-label">Historie:</span>
     <label>
@@ -38,79 +86,89 @@
       Skrýt přesná QSO potvrzená v Log4OM2
     </label>
   </div>
-</section>
-
-<section class="panel propagation-panel" aria-labelledby="propagation-heading">
-  <h2 id="propagation-heading">Podmínky šíření</h2>
-  <div id="propagation-summary" class="propagation-summary">Načítám data Kp a SFI…</div>
-  <div id="propagation-bands" class="propagation-bands"></div>
-  <div id="propagation-detail" class="propagation-detail"></div>
+  <details class="advanced-filters">
+    <summary>Pokročilé filtry</summary>
+    <div class="filter-group">
+      <span class="filter-label">Módy:</span>
+      <span id="mode-filters"></span>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Pásma:</span>
+      <span id="band-filters"></span>
+    </div>
+  </details>
 </section>
 
 <section class="panel autotune">
   <h2>AUTO TUNE</h2>
+  <span id="at-hold-countdown" class="hold-countdown"></span>
   <div class="autotune-mode-box" aria-label="Režim automatického ladění">
     <span class="autotune-mode-label">Režim:</span>
     <div class="autotune-mode-controls">
       <div class="autotune-mode-control" id="at-enabled-control">
         <span class="autotune-mode-name">AUTO TUNE</span>
-        <button type="button" id="at-enabled-ok">OK</button>
+        <button type="button" id="at-enabled-ok" title="Automaticky ladí nejlepší dostupnou stanici">Zapnout AUTO TUNE</button>
       </div>
       <div class="autotune-mode-control" id="at-hold-control">
         <span class="autotune-mode-name">HOLD</span>
-        <button type="button" id="at-hold-ok">OK</button>
+        <button type="button" id="at-hold-ok" title="Podrží rádio na aktuální stanici bez automatického ladění">Zapnout HOLD</button>
       </div>
     </div>
-    <span id="at-hold-countdown" class="hold-countdown"></span>
   </div>
-  <form id="autotune-form">
-    <label>Min. skóre: <input type="number" id="at-min-score" min="0" max="100" style="width:5em" /></label>
-    <label>Min. doba držení (s): <input type="number" id="at-min-hold" min="0" style="width:6em" /></label>
-    <label>Min. rozdíl skóre: <input type="number" id="at-min-delta" min="0" style="width:5em" /></label>
-  </form>
   <div id="autotune-decision" class="decision"></div>
+  <details class="autotune-settings">
+    <summary>Nastavení ladění</summary>
+    <form id="autotune-form">
+      <label title="Minimální skóre kandidáta pro přeladění">Min. skóre: <input type="number" id="at-min-score" min="0" max="100" style="width:5em" /></label>
+      <label title="Jak dlouho se bude rádio držet na stanici po naladění">Min. doba držení (s): <input type="number" id="at-min-hold" min="0" style="width:6em" /></label>
+      <label title="Minimální rozdíl skóre nutný pro přeladění na novou stanici">Min. rozdíl skóre: <input type="number" id="at-min-delta" min="0" style="width:5em" /></label>
+    </form>
+  </details>
   <p class="safety-note">
     AUTO TUNE smí měnit pouze frekvenci a mód přes Hamlib/rigctld. Nikdy
     nezapíná vysílání (klíčování transmitteru) a nikdy neovládá anténní rotátor.
   </p>
 </section>
 
-<section class="panel">
-  <h2>Kandidáti</h2>
-  <p class="hint">Klikni na řádek kandidáta pro výběr, pak naladi tlačítkem NALADIT.</p>
-  <div class="tune-controls">
-    <button type="button" id="tune-button" disabled>NALADIT</button>
-    <button type="button" id="qso-button" disabled>ZAPSAT QSO DO HISTORIE</button>
-    <span id="tune-selected" class="tune-selected">Nevybrán žádný kandidát.</span>
-  </div>
-  <div id="tune-result" class="tune-result"></div>
-  <table id="candidates-table">
-    <thead>
-      <tr>
-        <th>Callsign</th>
-        <th>DXCC / země</th>
-        <th>Frekvence</th>
-        <th>Mód</th>
-        <th>Čerstvost</th>
-        <th>Zdroje</th>
-        <th>Skóre</th>
-        <th>Bearing</th>
-      </tr>
-    </thead>
-    <tbody id="candidates-body"></tbody>
-  </table>
+<section class="panel propagation-panel" aria-labelledby="propagation-heading">
+  <h2 id="propagation-heading">Propagace</h2>
+  <div id="propagation-summary" class="propagation-summary">Načítám data Kp a SFI…</div>
+  <details class="propagation-outlook">
+    <summary>Zobrazit výhled pásem</summary>
+    <p class="hint">Nižší Kp = lepší šíření, vyšší SFI = lepší podmínky pro vyšší pásma.</p>
+    <div id="propagation-bands" class="propagation-bands"></div>
+    <div id="propagation-detail" class="propagation-detail"></div>
+  </details>
 </section>
 
-<section class="panel">
+<section class="panel notifications-panel">
   <h2>Band-opening notifikace</h2>
   <div id="notifications" class="event-list">Žádné notifikace.</div>
 </section>
 
-<section class="panel">
+<section class="panel history-panel">
   <h2>Historie QSO</h2>
   <p class="hint">Záznam vznikne pouze po explicitním stisku tlačítka; Log4OM2 tím není potvrzen ani uložen.</p>
   <div id="qso-history" class="event-list">Historie je prázdná.</div>
 </section>
+
+<details class="panel legend">
+  <summary>Nápověda k barvám a stavům</summary>
+  <strong style="font-size: 0.9rem">Stav zdroje:</strong>
+  <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.4rem;">
+    <span class="legend-item"><span class="legend-dot legend-dot-ok"></span> ● V pořádku - zdroj funguje</span>
+    <span class="legend-item"><span class="legend-dot legend-dot-pending"></span> ◌ Inicializuji - první spuštění</span>
+    <span class="legend-item"><span class="legend-dot legend-dot-backoff"></span> ◐ Opakuji za … - dočasné čekání</span>
+    <span class="legend-item"><span class="legend-dot legend-dot-error"></span> ! Vyžaduje pozornost - zdroj selhává</span>
+  </div>
+  <strong style="font-size: 0.9rem; display: block; margin-top: 0.4rem">Skóre kandidáta:</strong>
+  <div style="display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.4rem;">
+    <span class="legend-item"><span class="legend-dot legend-dot-ok"></span> 70-100 - vysoké</span>
+    <span class="legend-item"><span class="legend-dot legend-dot-backoff"></span> 40-69 - střední</span>
+    <span class="legend-item"><span class="legend-dot legend-dot-error"></span> 0-39 - nízké</span>
+  </div>
+</details>
+</main>
 
 <script src="/autotune_controls.js"></script>
 <script src="/selected_score.js"></script>

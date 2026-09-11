@@ -101,6 +101,11 @@ class WebApiTests(unittest.TestCase):
         self.assertIn("javascript", content_type)
         self.assertIn(b"StationAutotuneControls", body)
 
+        status, content_type, body = self._get("/selected_score.js")
+        self.assertEqual(status, 200)
+        self.assertIn("javascript", content_type)
+        self.assertIn(b"StationSelectedScore", body)
+
         status, content_type, _ = self._get("/style.css")
         self.assertEqual(status, 200)
         self.assertIn("css", content_type)
@@ -121,12 +126,173 @@ class WebApiTests(unittest.TestCase):
         _, _, html = self._get("/")
         page = html.decode("utf-8")
         self.assertIn('<span class="autotune-mode-name">AUTO TUNE</span>', page)
-        self.assertIn('<button type="button" id="at-enabled-ok">OK</button>', page)
+        self.assertIn('id="at-enabled-ok"', page)
+        self.assertIn("Zapnout AUTO TUNE", page)
         self.assertIn('<span class="autotune-mode-name">HOLD</span>', page)
-        self.assertIn('<button type="button" id="at-hold-ok">OK</button>', page)
+        self.assertIn('id="at-hold-ok"', page)
+        self.assertIn("Zapnout HOLD", page)
         self.assertIn('class="autotune-mode-box"', page)
 
         self.assertIn('<script src="/autotune_controls.js"></script>', page)
+
+    def test_gui_clarity_layout_uses_disclosures_and_explicit_action_labels(self):
+        """Regrese k přehlednosti GUI (viz AUDIT_ITERATION_1.md): legenda a
+        propagační výhled jsou schované za <details>, ne trvale zabírají
+        místo v hlavním pracovním toku; AUTO TUNE/HOLD tlačítka a akce nad
+        kandidáty mají popisné texty místo generického "OK"/"NALADIT"."""
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+
+        # Legenda stavu zdrojů/skóre je collapsible, ne trvalý panel.
+        self.assertIn('<details class="panel legend">', page)
+        self.assertIn("Nápověda k barvám a stavům", page)
+
+        # Zdroje v headeru mají kompaktní souhrn a detail schovaný za <details>.
+        self.assertIn('id="sources-summary"', page)
+        self.assertIn('<details class="sources-detail">', page)
+
+        # Propagační rozpad po pásmech je schovaný za "Zobrazit výhled pásem".
+        self.assertIn('<details class="propagation-outlook">', page)
+        self.assertIn("Zobrazit výhled pásem", page)
+
+        # AUTO TUNE prahové hodnoty jsou v rozbalovacím bloku "Nastavení ladění".
+        self.assertIn('<details class="autotune-settings">', page)
+        self.assertIn("Nastavení ladění", page)
+
+        # Akce nad kandidáty mají popisné texty, ne technický žargon.
+        self.assertIn("Naladit přijímač", page)
+        self.assertIn("Zapsat do místní historie", page)
+        self.assertIn('title="Neukládá QSO do Log4OM2"', page)
+
+        # Log4OM2 karta v headeru je popsaná jako kontrola historie.
+        self.assertIn("Kontrola historie Log4OM2", page)
+
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn("function friendlySourceName(name)", script)
+        self.assertIn('"Reverse Beacon Network"', script)
+        self.assertIn('"PSK Reporter"', script)
+
+    def test_gui_layout_puts_candidates_first_and_supporting_panels_last(self):
+        """Pořadí ploch podle pracovní priority (AUDIT_ITERATION_1.md §3):
+        v DOM (= pořadí v úzkém okně) jdou kandidáti, rychlé filtry, AUTO
+        TUNE a až potom propagace, notifikace, historie a legenda; na
+        desktopu totéž řeší grid-template-areas v style.css. Hlavička nese
+        i souhrn AUTO TUNE, aby byl režim vidět bez scrollování."""
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+        order = [
+            page.index('class="panel candidates-panel"'),
+            page.index('class="panel filters"'),
+            page.index('class="panel autotune"'),
+            page.index('class="panel propagation-panel"'),
+            page.index('class="panel notifications-panel"'),
+            page.index('class="panel history-panel"'),
+            page.index('class="panel legend"'),
+        ]
+        self.assertEqual(order, sorted(order))
+
+        header = page[page.index("<header"):page.index("</header>")]
+        self.assertIn('id="autotune-status"', header)
+        self.assertIn('id="sources-summary"', header)
+        self.assertIn('id="propagation-status"', header)
+        self.assertIn('id="log4om-status"', header)
+
+        # Rychlé filtry: předvolba + počet zobrazených kandidátů viditelné,
+        # jednotlivá pásma/módy až v "Pokročilé filtry".
+        self.assertIn("Rychlé filtry", page)
+        self.assertIn('id="filter-summary"', page)
+        self.assertIn('<details class="advanced-filters">', page)
+        self.assertIn("Pokročilé filtry", page)
+        advanced = page[page.index('<details class="advanced-filters">'):page.index("</details>", page.index('<details class="advanced-filters">'))]
+        self.assertIn('id="mode-filters"', advanced)
+        self.assertIn('id="band-filters"', advanced)
+
+        _, _, css = self._get("/style.css")
+        stylesheet = css.decode("utf-8")
+        self.assertIn("grid-template-areas", stylesheet)
+        self.assertIn('"candidates filters"', stylesheet)
+        self.assertIn('"candidates autotune"', stylesheet)
+        # AUTO TUNE musí sedět přímo pod rychlými filtry: kandidáti spanují
+        # dva řádky a bez explicitních řádků by se jejich výška rozdělila
+        # mezi oba a AUTO TUNE by spadl s prázdnou mezerou dolů (ověřeno
+        # v živém GUI, 1500 px). Řádek filtrů podle obsahu, druhý pohltí zbytek.
+        dashboard = stylesheet[stylesheet.index(".dashboard {"):stylesheet.index("grid-template-areas")]
+        self.assertIn("grid-template-rows: auto 1fr", dashboard)
+        # Připnuté záhlaví tabulky kandidátů.
+        self.assertIn("#candidates-table thead th", stylesheet)
+        self.assertIn("position: sticky", stylesheet[stylesheet.index("#candidates-table thead th"):])
+        # V úzkém okně je panel kandidátů vodorovný scroll kontejner, kde by
+        # se sticky záhlaví lepilo dovnitř panelu a posun o výšku hlavičky
+        # ho odsunul pod první řádek -- tam musí být záhlaví běžné (static).
+        narrow = stylesheet[stylesheet.index("@media (max-width: 760px)"):]
+        self.assertIn("#candidates-table thead th", narrow)
+        self.assertIn("position: static", narrow[narrow.index("#candidates-table thead th"):])
+
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn("function renderFilterSummary(", script)
+        self.assertIn("function syncHeaderHeight()", script)
+
+    def test_gui_candidate_actions_use_selection_bar_and_explicit_detail_control(self):
+        """Kandidáti (AUDIT_ITERATION_1.md §4): pevný pruh "Vybraný kandidát:
+        žádný" / "Vybraný: CALL · frekvence · mód", primární akce Naladit
+        přijímač, sekundární Zapsat do místní historie s popiskem, detail
+        skóre přes tlačítko v řádku (ne poklepáním) a zkrácené názvy zdrojů
+        v buňce s plným seznamem v tooltipu."""
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+        self.assertIn('<div class="selection-bar">', page)
+        self.assertIn("Vybraný kandidát: žádný", page)
+        self.assertIn("neukládá QSO do Log4OM2", page)
+        self.assertIn('<th title="Rozpad skóre a reliabilita zdroje">Detail</th>', page)
+
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn('selectedEl.textContent = "Vybraný kandidát: žádný"', script)
+        self.assertIn("Vybraný: <strong>${state.selected.callsign}</strong>", script)
+        self.assertIn('class="detail-toggle"', script)
+        self.assertIn("Důvody skóre", script)
+        self.assertIn("function toggleCandidateDetail(c)", script)
+        self.assertIn("ev.stopPropagation()", script)
+        self.assertIn("function shortSourceName(name)", script)
+        self.assertIn('title="Zdroje: ${sourcesFull}">${sourcesShort}', script)
+
+    def test_gui_status_indicators_combine_icon_and_text(self):
+        """Stavové indikace (AUDIT_ITERATION_1.md §5): ikona + text + barva
+        pro každý stav zdroje, backoff s časem dalšího pokusu, konkrétní
+        chyba nikdy skrytá; AUTO TUNE rozhodnutí má titulek podle výsledku
+        a propagace ukazuje slovní závěr pro aktuální pásmo."""
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn('ok: "● V pořádku"', script)
+        self.assertIn('pending: "◌ Inicializuji"', script)
+        self.assertIn('backoff: "◐ Opakuji"', script)
+        self.assertIn('error: "! Vyžaduje pozornost"', script)
+        self.assertIn("function sourceStatusLabel(s)", script)
+        self.assertIn('class="source-error-note"', script)
+        self.assertIn('"Poslední naladění"', script)
+        self.assertIn('"Proč se nyní neladí"', script)
+        self.assertIn("function propagationVerdict(quality)", script)
+        self.assertIn("state.rig.band", script)
+        self.assertIn("Podmínky (${currentBand}): ${verdict}", script)
+
+    def test_status_rig_exposes_band_for_propagation_summary(self):
+        """/api/status rig nese odvozené `band` (bandplan.freq_to_band), aby
+        GUI vybralo pásmo pro souhrn propagace bez vlastního bandplanu."""
+        self.app_state.current_rig_state = RigState(
+            freq_hz=14_074_000, mode="FT8", tuned_at=1000.0, callsign="DX1AA",
+        )
+        try:
+            rig = json.loads(self._get("/api/status")[2])["rig"]
+            self.assertEqual(rig["band"], "20m")
+            self.app_state.current_rig_state = RigState(
+                freq_hz=70_100_000, mode="SSB", tuned_at=1000.0, callsign=None,
+            )
+            rig = json.loads(self._get("/api/status")[2])["rig"]
+            self.assertIsNone(rig["band"])
+        finally:
+            self.app_state.current_rig_state = None
 
     @unittest.skipUnless(shutil.which("node"), "Node.js is required for the browser click regression")
     def test_autotune_ok_controls_execute_runtime_click_handlers(self):
@@ -163,6 +329,177 @@ if (JSON.stringify(calls) !== JSON.stringify(expected)) {
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_gui_header_wires_selected_candidate_score_indicator(self):
+        """Horní indikátor skóre vybraného kandidáta musí být v headeru,
+        ve výchozím stavu skrytý, a musí čerpat ze stejných zdrojů dat jako
+        zbytek GUI: renderSelectedScore() se volá z renderRigStatus() (každý
+        refresh /api/status -> rig.score naladěné stanice, které backend
+        průběžně přepočítává) i z renderCandidates() (každý refresh
+        /api/candidates i změna výběru v tabulce) a hodnotu rozhoduje
+        StationSelectedScore.resolveHeader nad state.rig/state.autotune +
+        state.selected/state.candidates -- žádný duplicitní výpočet skóre."""
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+        header = page[page.index("<header"):page.index("</header>")]
+        self.assertIn('id="selected-score-status"', header)
+        self.assertIn('class="selected-score-status" hidden', header)
+        self.assertLess(
+            page.index('<script src="/selected_score.js"></script>'),
+            page.index('<script src="/app.js"></script>'),
+        )
+
+        _, _, javascript = self._get("/app.js")
+        script = javascript.decode("utf-8")
+        self.assertIn("function renderSelectedScore()", script)
+        self.assertIn("StationSelectedScore.resolveHeader({", script)
+        for source in ("rig: state.rig", "autotune: state.autotune", "selected: state.selected", "candidates: state.candidates"):
+            self.assertIn(source, script)
+        self.assertIn("el.hidden = entries.length === 0", script)
+        render_candidates = script[script.index("function renderCandidates()"):script.index("async function postFilters()")]
+        self.assertIn("renderSelectedScore();", render_candidates)
+        render_rig_status = script[script.index("function renderRigStatus("):script.index("function renderPropagation(")]
+        self.assertIn("state.rig = rig || null", render_rig_status)
+        self.assertIn("state.autotune = status.autotune || null", render_rig_status)
+        self.assertIn("renderSelectedScore();", render_rig_status)
+        # renderRigStatus se volá po každé odpovědi se stavem: pravidelný
+        # refresh, NALADIT i změna režimu AUTO TUNE/HOLD.
+        self.assertGreaterEqual(script.count("renderRigStatus(status)"), 3)
+
+        _, _, css = self._get("/style.css")
+        self.assertIn(".selected-score-status[hidden]", css.decode("utf-8"))
+
+    def test_status_rig_exposes_continuously_recomputed_score_for_header(self):
+        """/api/status musí u naladěné stanice nést `rig.callsign` a
+        `rig.score` -- hodnotu, kterou app_state._sync_current_score
+        přepočítává při každé obnově kandidátů a kterou horní indikátor GUI
+        zobrazuje bez vlastního výpočtu."""
+        state = self.app_state
+        cfg = state.autotune_engine.cfg
+        saved = (state.current_rig_state, state._current_candidate, cfg.enabled, cfg.hold)
+        try:
+            candidates = state.refresh_candidates()
+            candidate = next(c for c in candidates if c.score is not None)
+            state.manual_tune(candidate.callsign, candidate.freq_hz, candidate.mode)
+
+            status = json.loads(self._get("/api/status")[2])
+            self.assertEqual(status["rig"]["callsign"], candidate.callsign)
+            self.assertEqual(status["rig"]["score"], candidate.score.total)
+            self.assertFalse(status["autotune"]["enabled"])
+
+            state.refresh_candidates()
+            refreshed = json.loads(self._get("/api/status")[2])
+            match = next(
+                c for c in state.latest_candidates
+                if c.callsign == candidate.callsign and c.freq_hz == candidate.freq_hz and c.mode == candidate.mode
+            )
+            self.assertEqual(refreshed["rig"]["score"], match.score.total)
+        finally:
+            state.current_rig_state, state._current_candidate, cfg.enabled, cfg.hold = saved
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for the selected score regression")
+    def test_selected_score_indicator_resolves_runtime_values(self):
+        """Rozhodovací logika horního indikátoru: bez výběru null (skrytý),
+        s výběrem průběžné score.total téhož kandidáta z aktuálního seznamu
+        (po refreshi se hodnota mění), bez skóre jen callsign, po zrušení
+        výběru opět null."""
+        module_path = Path(server_module.STATIC_DIR) / "selected_score.js"
+        scenario = r'''
+const selectedScore = require(process.argv[1]);
+const sameKey = (a, b) => !!a && !!b && a.callsign === b.callsign && a.freq_hz === b.freq_hz && a.mode === b.mode;
+const selected = { callsign: "DX1AA", freq_hz: 14195000, mode: "SSB" };
+const other = { callsign: "DX2BB", freq_hz: 7100000, mode: "CW", score: { total: 99 } };
+const results = [
+  selectedScore.resolve(null, [other, { ...selected, score: { total: 73 } }], sameKey),
+  selectedScore.resolve(selected, [other, { ...selected, score: { total: 73 } }], sameKey),
+  selectedScore.resolve(selected, [other, { ...selected, score: { total: 81 } }], sameKey),
+  selectedScore.resolve(selected, [other, { ...selected, score: null }], sameKey),
+  selectedScore.resolve(selected, [other, { ...selected, freq_hz: 14200000, score: { total: 50 } }], sameKey),
+  selectedScore.resolve(null, [], sameKey),
+];
+const expected = [
+  null,
+  { callsign: "DX1AA", scoreTotal: 73 },
+  { callsign: "DX1AA", scoreTotal: 81 },
+  { callsign: "DX1AA", scoreTotal: null },
+  { callsign: "DX1AA", scoreTotal: null },
+  null,
+];
+if (JSON.stringify(results) !== JSON.stringify(expected)) {
+  throw new Error("Unexpected selected score results: " + JSON.stringify(results));
+}
+'''
+        completed = subprocess.run(
+            [shutil.which("node"), "-e", scenario, str(module_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js is required for the selected score regression")
+    def test_header_indicator_follows_autotune_selected_station(self):
+        """Kandidát vybraný AUTO TUNE (rig.callsign z /api/status) se v
+        headeru zobrazuje s průběžně přepočítávaným rig.score: bez naladěné
+        stanice (rig null / bez callsignu) prázdno -> skrytý; po naladění
+        AUTO TUNE položka "tuned" s autotune=true; po refreshi status se
+        hodnota skóre mění; po ručním NALADIT (AUTO TUNE vypnuto) stejná
+        položka s autotune=false; ručně označený kandidát se přidává jako
+        druhá položka, ale je-li totožný s naladěnou stanicí, nezdvojuje se;
+        po zrušení označení zůstane jen naladěná stanice."""
+        module_path = Path(server_module.STATIC_DIR) / "selected_score.js"
+        scenario = r'''
+const selectedScore = require(process.argv[1]);
+const sameKey = (a, b) => !!a && !!b && a.callsign === b.callsign && a.freq_hz === b.freq_hz && a.mode === b.mode;
+const tunedRig = { callsign: "DX1AA", freq_hz: 14195000, mode: "SSB", score: 73 };
+const hardwareOnlyRig = { callsign: null, freq_hz: 14195000, mode: "SSB", score: null };
+const other = { callsign: "DX2BB", freq_hz: 7100000, mode: "CW" };
+const candidates = [
+  { ...other, score: { total: 99 } },
+  { callsign: "DX1AA", freq_hz: 14195000, mode: "SSB", score: { total: 73 } },
+];
+const on = { enabled: true, hold: false };
+const off = { enabled: false, hold: true };
+const results = [
+  selectedScore.resolveHeader({ rig: null, autotune: on, selected: null, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: hardwareOnlyRig, autotune: on, selected: null, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: tunedRig, autotune: on, selected: null, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: { ...tunedRig, score: 81 }, autotune: on, selected: null, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: { ...tunedRig, score: null }, autotune: on, selected: null, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: tunedRig, autotune: off, selected: null, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: tunedRig, autotune: off, selected: other, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: tunedRig, autotune: off, selected: { callsign: "DX1AA", freq_hz: 14195000, mode: "SSB" }, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: null, autotune: off, selected: other, candidates, sameCandidateKey: sameKey }),
+  selectedScore.resolveHeader({ rig: null, autotune: null, selected: null, candidates: [], sameCandidateKey: sameKey }),
+];
+const expected = [
+  [],
+  [],
+  [{ kind: "tuned", callsign: "DX1AA", scoreTotal: 73, autotune: true }],
+  [{ kind: "tuned", callsign: "DX1AA", scoreTotal: 81, autotune: true }],
+  [{ kind: "tuned", callsign: "DX1AA", scoreTotal: null, autotune: true }],
+  [{ kind: "tuned", callsign: "DX1AA", scoreTotal: 73, autotune: false }],
+  [
+    { kind: "tuned", callsign: "DX1AA", scoreTotal: 73, autotune: false },
+    { kind: "selected", callsign: "DX2BB", scoreTotal: 99 },
+  ],
+  [{ kind: "tuned", callsign: "DX1AA", scoreTotal: 73, autotune: false }],
+  [{ kind: "selected", callsign: "DX2BB", scoreTotal: 99 }],
+  [],
+];
+if (JSON.stringify(results) !== JSON.stringify(expected)) {
+  throw new Error("Unexpected header entries: " + JSON.stringify(results));
+}
+'''
+        completed = subprocess.run(
+            [shutil.which("node"), "-e", scenario, str(module_path)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_gui_shows_distinct_text_for_each_autotune_hold_visibility_state(self):
         """Viditelnost stavu v GUI: rocker přepínač sám o sobě nerozliší
         "obojí vypnuto" od chybějícího "checked" atributu, takže
@@ -172,9 +509,11 @@ if (JSON.stringify(calls) !== JSON.stringify(expected)) {
         _, _, javascript = self._get("/app.js")
         script = javascript.decode("utf-8")
         self.assertIn("function renderHoldCountdown()", script)
-        self.assertIn('el.textContent = "HOLD aktivní"', script)
+        self.assertIn('el.textContent = "HOLD aktivní — ruční ladění"', script)
         self.assertIn('el.textContent = "AUTO TUNE vypnuto"', script)
         self.assertIn('el.textContent = "AUTO TUNE aktivní"', script)
+        # Totéž se zrcadlí do karty AUTO TUNE v hlavičce.
+        self.assertIn('getElementById("autotune-status")', script)
 
     def test_candidates_endpoint_returns_scored_candidates(self):
         status, content_type, body = self._get("/api/candidates")
@@ -373,6 +712,46 @@ if (JSON.stringify(calls) !== JSON.stringify(expected)) {
         self.assertEqual(refreshed["min_score"], 42)
         self.assertEqual(refreshed["autotune"]["min_hold_seconds"], 30)
         self.assertEqual(refreshed["autotune"]["min_score_delta"], 3)
+
+    def test_post_autotune_persists_settings_to_database(self):
+        status, data = self._post_json(
+            "/api/autotune",
+            {"enabled": True, "hold": False, "min_score": 44, "min_hold_seconds": 33, "min_score_delta": 6},
+        )
+        self.assertEqual(status, 200)
+        saved = self.app_state.db.load_autotune_preferences()
+        self.assertEqual(saved["enabled"], True)
+        self.assertEqual(saved["hold"], False)
+        self.assertEqual(saved["min_hold_seconds"], 33.0)
+        self.assertEqual(saved["min_score_delta"], 6.0)
+        self.assertEqual(saved["min_score"], 44)
+
+        status, data = self._post_json("/api/autotune", {"hold": True})
+        self.assertEqual(status, 200)
+        saved = self.app_state.db.load_autotune_preferences()
+        # Partial payload -- perzistuje se úplný efektivní stav po aplikaci
+        # payloadu (enabled/hold jsou vzájemně výlučné), ne jen odeslaná pole.
+        self.assertEqual(saved["enabled"], False)
+        self.assertEqual(saved["hold"], True)
+        self.assertEqual(saved["min_score"], 44)
+
+    def test_post_filters_persists_exclude_worked_qsos_preference_to_database(self):
+        original_checker = self.app_state.log4om_checker
+        original_filter = self.app_state.log4om_filter_enabled
+        try:
+            self.app_state.log4om_checker = object()
+
+            status, _ = self._post_json("/api/filters", {"exclude_worked_qsos": True})
+            self.assertEqual(status, 200)
+            self.assertTrue(self.app_state.db.load_exclude_worked_qsos_preference())
+
+            status, _ = self._post_json("/api/filters", {"exclude_worked_qsos": False})
+            self.assertEqual(status, 200)
+            self.assertFalse(self.app_state.db.load_exclude_worked_qsos_preference())
+        finally:
+            self.app_state.log4om_checker = original_checker
+            self.app_state.log4om_filter_enabled = original_filter
+            self.app_state.log4om_verification = None
 
     def test_post_autotune_enabled_true_forces_hold_off(self):
         """AUTO TUNE a HOLD jsou vzájemně výlučné -- zapnutí AUTO TUNE musí
@@ -793,6 +1172,8 @@ class ShutdownEndpointTests(unittest.TestCase):
         db.log_band_opening("20m", 6)
         db.log_qso("OK1ABC", 14_195_000, "SSB", "20m")
         db.save_filter_preferences(["20m"], ["SSB"])
+        db.save_autotune_preferences(True, False, 30.0, 5.0, 50)
+        db.save_exclude_worked_qsos_preference(True)
 
         self.polling_loop = PollingLoop(self.app_state, interval_seconds=0.05)
         self.polling_loop.start()

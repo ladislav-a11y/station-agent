@@ -24,6 +24,26 @@ class DatabaseTests(unittest.TestCase):
         self.db.save_filter_preferences(["40m"], ["CW"])
         self.assertEqual(self.db.load_filter_preferences(), (["40m"], ["CW"]))
 
+    def test_autotune_preferences_round_trip_and_replace_previous_choice(self):
+        self.assertIsNone(self.db.load_autotune_preferences())
+        self.db.save_autotune_preferences(True, False, 30.0, 5.0, 50)
+        self.assertEqual(
+            self.db.load_autotune_preferences(),
+            {"enabled": True, "hold": False, "min_hold_seconds": 30.0, "min_score_delta": 5.0, "min_score": 50},
+        )
+        self.db.save_autotune_preferences(False, True, 60.0, 8.0, 70)
+        self.assertEqual(
+            self.db.load_autotune_preferences(),
+            {"enabled": False, "hold": True, "min_hold_seconds": 60.0, "min_score_delta": 8.0, "min_score": 70},
+        )
+
+    def test_exclude_worked_qsos_preference_round_trip_and_replace_previous_choice(self):
+        self.assertIsNone(self.db.load_exclude_worked_qsos_preference())
+        self.db.save_exclude_worked_qsos_preference(True)
+        self.assertTrue(self.db.load_exclude_worked_qsos_preference())
+        self.db.save_exclude_worked_qsos_preference(False)
+        self.assertFalse(self.db.load_exclude_worked_qsos_preference())
+
     def test_insert_and_recent_spots(self):
         now = time.time()
         self.db.insert_spot(
@@ -129,6 +149,8 @@ class ClearAllDataTests(unittest.TestCase):
         db.log_band_opening("20m", 6, ts=now)
         db.log_qso("OK1ABC", 14_195_000, "SSB", "20m", 123.4, "test", ts=now)
         db.save_filter_preferences(["20m"], ["SSB"])
+        db.save_autotune_preferences(True, False, 30.0, 5.0, 50)
+        db.save_exclude_worked_qsos_preference(True)
 
     def test_clear_all_data_empties_every_data_table_but_keeps_schema(self):
         now = time.time()
@@ -143,6 +165,8 @@ class ClearAllDataTests(unittest.TestCase):
         self.assertEqual(self.db.recent_band_openings(), [])
         self.assertEqual(self.db.recent_qsos(), [])
         self.assertIsNone(self.db.load_filter_preferences())
+        self.assertIsNone(self.db.load_autotune_preferences())
+        self.assertIsNone(self.db.load_exclude_worked_qsos_preference())
         self.assertEqual(
             removed,
             {
@@ -152,6 +176,8 @@ class ClearAllDataTests(unittest.TestCase):
                 "band_openings": 1,
                 "qso_history": 1,
                 "filter_preferences": 1,
+                "autotune_preferences": 1,
+                "log4om_filter_preference": 1,
             },
         )
         # Schéma zůstává použitelné -- DB dál přijímá nové zápisy po vyčištění.
@@ -171,6 +197,8 @@ class ClearAllDataTests(unittest.TestCase):
                 "band_openings": 0,
                 "qso_history": 0,
                 "filter_preferences": 0,
+                "autotune_preferences": 0,
+                "log4om_filter_preference": 0,
             },
         )
 

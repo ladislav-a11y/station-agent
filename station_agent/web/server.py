@@ -219,7 +219,7 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
             path = urlparse(self.path).path
             if path == "/":
                 self._send_static("index.html")
-            elif path in ("/app.js", "/autotune_controls.js", "/style.css"):
+            elif path in ("/app.js", "/autotune_controls.js", "/selected_score.js", "/style.css"):
                 self._send_static(path.lstrip("/"))
             elif path == "/api/candidates":
                 candidates = app_state.refresh_candidates()
@@ -410,6 +410,15 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
                     if "min_score" in payload:
                         app_state.autotune_engine.min_score = int(payload["min_score"])
                         app_state.config.scoring.min_score = int(payload["min_score"])
+                    # Uloží aktuální (po aplikaci payloadu) efektivní stav, ne
+                    # jen odeslaný payload -- GUI formulář (viz app.js
+                    # updateAutotune) posílá i nezměněná pole, ale API tuto
+                    # volbu podporuje i pro partial payload, takže perzistence
+                    # musí vždy odrážet skutečně platnou konfiguraci po startu.
+                    app_state.db.save_autotune_preferences(
+                        cfg.enabled, cfg.hold, cfg.min_hold_seconds, cfg.min_score_delta,
+                        app_state.autotune_engine.min_score,
+                    )
             else:  # /api/filters -- GUI checkboxy pro povolené módy/pásma
                 with app_state.lock:
                     if "bands" in payload:
@@ -426,6 +435,9 @@ def _make_handler(app_state: AppState, polling_loop: PollingLoop | None = None):
                             payload["exclude_worked_qsos"]
                         ) and app_state.log4om_checker is not None
                         app_state.log4om_verification = None
+                        app_state.db.save_exclude_worked_qsos_preference(
+                            app_state.log4om_filter_enabled
+                        )
                     app_state.db.save_filter_preferences(
                         app_state.config.bands, app_state.config.modes
                     )

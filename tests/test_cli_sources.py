@@ -458,6 +458,8 @@ class StartupDatabaseCleanupTests(unittest.TestCase):
                 db.log_band_opening("20m", 6)
                 db.log_qso("OK1ABC", 14_195_000, "SSB", "20m")
                 db.save_filter_preferences(["20m"], ["SSB"])
+                db.save_autotune_preferences(True, False, 30.0, 5.0, 50)
+                db.save_exclude_worked_qsos_preference(True)
 
             with mock.patch(
                 "station_agent.cli.create_server",
@@ -473,6 +475,8 @@ class StartupDatabaseCleanupTests(unittest.TestCase):
                 self.assertEqual(db.recent_band_openings(), [])
                 self.assertEqual(db.recent_qsos(), [])
                 self.assertIsNone(db.load_filter_preferences())
+                self.assertIsNone(db.load_autotune_preferences())
+                self.assertIsNone(db.load_exclude_worked_qsos_preference())
 
             # Config a kód musí zůstat nedotčené -- čištění se smí týkat
             # výhradně obsahu databáze.
@@ -584,6 +588,90 @@ class FilterPreferenceStartupTests(unittest.TestCase):
             try:
                 self.assertEqual(app_state.config.bands, ["20m", "15m"])
                 self.assertEqual(app_state.config.modes, ["SSB", "FT8"])
+            finally:
+                app_state.aggregator.close()
+                app_state.db.close()
+                app_state.rig.close()
+
+
+class AutotunePreferenceStartupTests(unittest.TestCase):
+    """Zrcadlí FilterPreferenceStartupTests výše -- poslední hodnoty
+    formuláře AUTO TUNE (viz web/server.py POST /api/autotune) musí po
+    restartu nahradit výchozí hodnoty z config.yaml, ne se ztratit."""
+
+    def test_build_app_state_restores_last_autotune_choice_from_database(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            with Database(database_path) as db:
+                db.save_autotune_preferences(True, False, 45.0, 12.0, 55)
+
+            config = config_from_dict(
+                {
+                    "database": {"path": database_path},
+                    "sources": {"mock": {"enabled": False}},
+                    "propagation": {"enabled": False},
+                }
+            )
+            app_state = build_app_state(config)
+            try:
+                self.assertTrue(app_state.config.autotune.enabled)
+                self.assertFalse(app_state.config.autotune.hold)
+                self.assertEqual(app_state.config.autotune.min_hold_seconds, 45.0)
+                self.assertEqual(app_state.config.autotune.min_score_delta, 12.0)
+                self.assertEqual(app_state.config.scoring.min_score, 55)
+                self.assertEqual(app_state.autotune_engine.min_score, 55)
+            finally:
+                app_state.aggregator.close()
+                app_state.db.close()
+                app_state.rig.close()
+
+
+class ExcludeWorkedQsosPreferenceStartupTests(unittest.TestCase):
+    """Zrcadlí FilterPreferenceStartupTests výše pro přepínač "Skrýt přesná
+    QSO potvrzená v Log4OM2" (viz web/server.py POST /api/filters)."""
+
+    def test_build_app_state_restores_last_choice_when_checker_configured(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            with Database(database_path) as db:
+                db.save_exclude_worked_qsos_preference(True)
+
+            config = config_from_dict(
+                {
+                    "database": {"path": database_path},
+                    "sources": {"mock": {"enabled": False}},
+                    "propagation": {"enabled": False},
+                    "log4om_lookup": {"enabled": True, "path": "dummy.mdb"},
+                }
+            )
+            app_state = build_app_state(config)
+            try:
+                self.assertIsNotNone(app_state.log4om_checker)
+                self.assertTrue(app_state.log4om_filter_enabled)
+            finally:
+                app_state.aggregator.close()
+                app_state.db.close()
+                app_state.rig.close()
+
+    def test_saved_choice_has_no_effect_without_configured_checker(self):
+        """Stejné pravidlo jako v POST /api/filters -- uložené "true" nesmí
+        vypadat aktivní, dokud v tomto běhu není checker nakonfigurovaný."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = str(Path(temp_dir) / "station.sqlite3")
+            with Database(database_path) as db:
+                db.save_exclude_worked_qsos_preference(True)
+
+            config = config_from_dict(
+                {
+                    "database": {"path": database_path},
+                    "sources": {"mock": {"enabled": False}},
+                    "propagation": {"enabled": False},
+                }
+            )
+            app_state = build_app_state(config)
+            try:
+                self.assertIsNone(app_state.log4om_checker)
+                self.assertFalse(app_state.log4om_filter_enabled)
             finally:
                 app_state.aggregator.close()
                 app_state.db.close()
