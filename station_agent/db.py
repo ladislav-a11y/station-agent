@@ -28,8 +28,7 @@ CREATE TABLE IF NOT EXISTS spots (
     country TEXT,
     locator TEXT,
     bearing_deg REAL,
-    distance_km REAL,
-    reliability_percent REAL
+    distance_km REAL
 );
 CREATE INDEX IF NOT EXISTS idx_spots_callsign_ts ON spots(callsign, ts);
 CREATE INDEX IF NOT EXISTS idx_spots_ts ON spots(ts);
@@ -108,7 +107,6 @@ class Database:
                 ("locator", "TEXT"),
                 ("bearing_deg", "REAL"),
                 ("distance_km", "REAL"),
-                ("reliability_percent", "REAL"),
             ):
                 if name not in spot_columns:
                     self._conn.execute(f"ALTER TABLE spots ADD COLUMN {name} {column_type}")
@@ -165,9 +163,9 @@ class Database:
             """
             INSERT INTO spots (
                 callsign, freq_hz, mode, band, ts, source, snr_db, comment,
-                spotter, country, locator, bearing_deg, distance_km, reliability_percent
+                spotter, country, locator, bearing_deg, distance_km
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 spot.callsign,
@@ -183,7 +181,6 @@ class Database:
                 spot.locator,
                 spot.bearing_deg,
                 spot.distance_km,
-                spot.reliability_percent,
             ),
         )
         self._conn.commit()
@@ -201,9 +198,9 @@ class Database:
             """
             INSERT INTO spots (
                 callsign, freq_hz, mode, band, ts, source, snr_db, comment,
-                spotter, country, locator, bearing_deg, distance_km, reliability_percent
+                spotter, country, locator, bearing_deg, distance_km
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -220,7 +217,6 @@ class Database:
                     spot.locator,
                     spot.bearing_deg,
                     spot.distance_km,
-                    spot.reliability_percent,
                 )
                 for spot in spots
             ],
@@ -248,7 +244,6 @@ class Database:
                 locator=row["locator"],
                 bearing_deg=row["bearing_deg"],
                 distance_km=row["distance_km"],
-                reliability_percent=row["reliability_percent"],
             )
             for row in rows
         ]

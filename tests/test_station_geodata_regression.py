@@ -180,9 +180,10 @@ class ApiAndDisplayRegressionTests(unittest.TestCase):
         self.assertNotIn("c.locator", script)
         self.assertNotIn("locator_reason", script)
         self.assertIn("c.bearing_deg != null", script)
-        self.assertIn('c.distance_km ?? "?"', script)
+        self.assertIn("c.distance_km != null", script)
         self.assertNotIn("${locator}</td>", script)
         self.assertIn("${bearing}</td>", script)
+        self.assertIn("${distance}</td>", script)
 
 
 if __name__ == "__main__":

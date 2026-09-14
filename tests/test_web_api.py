@@ -245,7 +245,7 @@ class WebApiTests(unittest.TestCase):
         self.assertIn('<div class="selection-bar">', page)
         self.assertIn("Vybraný kandidát: žádný", page)
         self.assertIn("neukládá QSO do Log4OM2", page)
-        self.assertIn('<th title="Rozpad skóre a reliabilita zdroje">Detail</th>', page)
+        self.assertIn('<th title="Rozpad skóre a Log4OM2 reliabilita spotu">Detail</th>', page)
 
         _, _, javascript = self._get("/app.js")
         script = javascript.decode("utf-8")

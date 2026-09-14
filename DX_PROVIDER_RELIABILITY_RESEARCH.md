@@ -1,6 +1,6 @@
 # Rešerše reliability metadat DX providerů
 
-Stav k 8. září 2026. Dokument mapuje pouze zdroje, které Station Agent
+Stav k 12. září 2026. Dokument mapuje pouze zdroje, které Station Agent
 skutečně zapojuje v `station_agent/cli.py::build_sources()`. Mock je uveden pro
 úplnost, QRZ a country-file resolvery nejsou spotové providery a do této
 integrace nepatří.
@@ -8,11 +8,21 @@ integrace nepatří.
 ## Závěr
 
 Žádný nyní používaný provider neposkytuje číselnou pravděpodobnost nebo
-procentní `reliability` spotu. Hodnota tedy dnes nemá zdroj pravdy a nesmí se
+procentní `reliability` spotu. Hodnota tedy nemá zdroj pravdy a nesmí se
 odvozovat ze SNR, počtu spotterů ani textového quality tagu a vydávat za údaj
-providera. Současný scoring faktor `reliability` je jiná veličina: lokální,
-transparentní bonus podle počtu nezávislých spotterů
-(`station_agent/scoring.py::_reliability_reason`).
+providera -- dřívější pokus zavést takové pole (`Spot.reliability_percent` /
+`Candidate.reliability_percent`, práh `RELIABILITY_THRESHOLD_PERCENT = 95.0`
+v aggregatoru) byl proto odstraněn, protože se u žádného zapojeného
+providera nikdy neplnil reálnou evidencí.
+
+Místo toho se reliabilita spotu počítá podle principu, který pro DX cluster
+spoty používá Log4OM2: hodnocení vychází z **vlastností a potvrzení spotu
+samotného** (kolik na sobě nezávislých spotterů/skimmerů nahlásilo stejnou
+stanici na stejném pásmu/módu v krátkém časovém okně), ne z toho, který
+provider/cluster spot poslal. Implementace je v
+`station_agent/scoring.py` (`RELIABLE_SPOTTER_COUNT`, `_reliability_reason`,
+`is_reliable_spot`) a využívá evidenci, kterou už `aggregator.py` sbírá do
+`Candidate.spotters` při slučování spotů do kandidátů.
 
 | Provider | Skutečné rozhraní a dostupnost | Pole podobné reliability | Typ, jednotka, rozsah | Chybějící hodnota | Dnešní převod do modelu |
 |---|---|---|---|---|---|
@@ -28,53 +38,33 @@ Rozhraní a formáty odpovídají implementaci a veřejným popisům
 Kvalitativní skimmer tagy a jejich neprocentní význam popisuje
 [DXLog Additional Information](https://www.dxlog.net/docs/index.php?title=Additional_Information).
 
-## Konkrétní integrační návrh pro procenta a práh 95 %
+## Implementovaný princip: reliabilita spotu podle Log4OM2
 
-Implementace má být aktivována až pro provider, jehož verifikované rozhraní
-skutečně dodá číselnou pravděpodobnost. Interní kanonický kontrakt:
+Log4OM2 v cluster filtru neřeší, KTERÝ node/provider spot poslal -- spot
+označí za "reliable" až od nakonfigurovaného počtu nezávislých potvrzení
+(dalších spotů stejné stanice na stejném pásmu v krátkém časovém okně).
+Station Agent tento princip mapuje na existující evidenci takto:
 
-```python
-@dataclass
-class Spot:
-    # ... existující pole beze změny
-    reliability_percent: float | None = None
-
-@dataclass
-class Candidate:
-    # ... existující pole beze změny
-    reliability_percent: float | None = None
-```
-
-- Název interního pole je `reliability_percent`, aby se nezaměnilo s dnešním
-  scoring faktorem. Typ je `float | None`, jednotka procenta, uzavřený rozsah
-  `0.0..100.0`; konstanta prahu má být
-  `RELIABILITY_THRESHOLD_PERCENT = 95.0`.
-- Providerův parser převede zdrojové pole právě jednou do procent. Pokud zdroj
-  vrací zlomek `0..1`, násobí jej 100; pokud vrací procenta, pouze jej převede
-  na `float`. Nečíselné, NaN, nekonečné a mimorozsahové hodnoty se mapují na
-  `None` a zalogují bez obsahu celého odpovědního payloadu.
-- Správné místo převodu `Spot -> Candidate` je
-  `aggregator.group_spots_into_candidates()`, vedle `best_snr_db`. Z dostupných
-  hodnot ve shluku se použije minimum. Kandidát tak splní práh pouze tehdy,
-  když žádná providerem ohodnocená evidence ve sloučeném shluku neklesne pod
-  95 %. Agregace nesmí dopočítat číslo z providerů, kteří údaj nemají.
-- Vyhodnocení je tříhodnotové: `None` = provider údaj neposkytl,
-  `True` = procento je nejméně 95, `False` = procento je pod 95. `None` se
-  nesmí zaměnit za nulu ani za neúspěch.
-- Práh se má aplikovat jen v nové, explicitně zapnuté produktové funkci
-  (například filtr či nový ScoreReason). Při vypnuté funkci a pro kandidáta s
-  `None` zůstávají seznam, pořadí, score, notifikace i AUTO TUNE bitově stejné
-  jako dnes. Tím se zachová současné chování všech nynějších providerů.
-- `web/serialization.py::candidate_to_dict()` může pole pouze serializovat;
-  frontend je nesmí dopočítávat. API hodnota pro chybějící údaj je JSON
-  `null`, nikoli `0`, `50` nebo `95`.
-
-## Podmínky před implementací
-
-Pro nový provider je nutné uložit fixture jeho skutečné odpovědi a doložit:
-přesný externí název pole, datový typ, jednotku, deklarovaný rozsah a význam
-chybějící hodnoty. Cílené testy mají pokrýt obě hrany (`94.999`, `95.0`),
-`None`, neplatná čísla, normalizaci jednotek, slučování více spotů a regresi,
-že staré providery bez metadat produkují stejné kandidáty a skóre. Bez takto
-ověřeného kontraktu zůstane živý fetch podle `AGENTS.md` pending stubem a
-procentní pole se nebude plnit odhadem.
+- **Vstup** je `Candidate.spotters` -- množina nezávislých spotterů/skimmerů
+  napříč všemi zdroji, které `aggregator.group_spots_into_candidates()` už
+  sléva do jednoho kandidáta v rámci časového okna slučování
+  (`aggregator.DEFAULT_MERGE_TIME_WINDOW_SECONDS`). Žádný nový síťový dotaz
+  ani nové pole na `Spot` není potřeba.
+- **Práh** je `scoring.RELIABLE_SPOTTER_COUNT` (2 nezávislí spotteři) --
+  stejná konstanta, kterou už používal scoring faktor `reliability`
+  (`scoring._reliability_reason`).
+- **Výstup** je vždy dopočítatelný bool, ne tříhodnotová `None/True/False`
+  logika: `scoring.is_reliable_spot(candidate)` vrací `True`/`False` podle
+  počtu spotterů. Na rozdíl od dřívějšího `reliability_percent` polu tu
+  neexistuje stav "provider neodpověděl", protože se nic neptá providera --
+  evidence je vždy lokálně dostupná (i "0 spotterů" je platná, spočítaná
+  hodnota).
+- `web/serialization.py::candidate_to_dict()` serializuje výsledek jako
+  `"reliable"` (bool), GUI detail kandidáta (`app.js`) jej zobrazuje jako
+  "Log4OM2 reliabilita: spolehlivý/nepotvrzený spot" -- frontend hodnotu
+  nedopočítává, jen zobrazuje to, co vrátí `is_reliable_spot()`.
+- Na rozdíl od zrušeného prahu `RELIABILITY_THRESHOLD_PERCENT` se kandidáti
+  s nízkou reliabilitou z výsledků nemažou -- Log4OM2 princip zde ovlivňuje
+  jen bodové skóre (`_reliability_reason`) a zobrazený štítek, ne to, jestli
+  se kandidát vůbec zobrazí. Filtrování celého seznamu podle reliability tak
+  zůstává na uživateli (řazení podle skóre), ne na tichém zahození záznamu.

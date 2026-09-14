@@ -286,8 +286,9 @@ bezpečnostní invarianty, které se nesmí porušit).
 
 ## Stav externích zdrojů (adaptérů)
 
-Přesná inventura polí souvisejících se spolehlivostí a návrh budoucího
-procentního kontraktu s prahem 95 % jsou v
+Přesná inventura polí souvisejících se spolehlivostí u jednotlivých
+providerů a princip reliability spotu podle Log4OM2 (vychází z potvrzení
+spotu, ne z identity providera) jsou v
 [DX_PROVIDER_RELIABILITY_RESEARCH.md](DX_PROVIDER_RELIABILITY_RESEARCH.md).
 
 | Adaptér | Parsování / logika | Živé připojení |

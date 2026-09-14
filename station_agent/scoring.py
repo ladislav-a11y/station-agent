@@ -25,8 +25,17 @@ from station_agent.propagation import PropagationContext
 # účely path_dx faktoru -- dál už fyzicky nejde.
 MAX_REALISTIC_DISTANCE_KM = 20_000.0
 
+# Reliabilita spotu podle principu Log4OM2 (DX Cluster "spot reliability"
+# filtr): spolehlivost se neodvozuje z toho, KTERÝ provider/cluster spot
+# poslal (identita zdroje k tomu nic neříká -- viz
+# DX_PROVIDER_RELIABILITY_RESEARCH.md), ale z vlastností a potvrzení spotu
+# samotného -- kolik NA SOBĚ NEZÁVISLÝCH spotterů nahlásilo stejnou stanici
+# na stejném pásmu/módu v rámci časového okna slučování
+# (aggregator.DEFAULT_MERGE_TIME_WINDOW_SECONDS). Log4OM2 v Cluster filtru
+# označí spot jako "reliable" od nakonfigurovaného počtu takových nezávislých
+# potvrzení -- zde je ekvivalentem `candidate.spotters` a tento práh.
 # Kolik nezávislých spotterů už považujeme za plně spolehlivé potvrzení
-# (víc už skóre dál nezvyšuje -- viz _reliability_reason).
+# (víc už skóre dál nezvyšuje -- viz _reliability_reason a is_reliable_spot).
 RELIABLE_SPOTTER_COUNT = 2
 
 # Kolik odlišných stanic na stejném pásmu už bereme jako jasný signál
@@ -99,7 +108,9 @@ def _reliability_reason(candidate: Candidate, cfg: ScoringConfig) -> ScoreReason
     """Spolehlivost evidence -- kolik NEZÁVISLÝCH spotterů/skimmerů/přijímačů
     stanici potvrdilo (napříč zdroji i uvnitř jednoho zdroje). Jeden
     ojedinělý spotter může mít překlep/chybu; víc odlišných lidí/skimmerů
-    hlásících stejný callsign na stejné frekvenci je silnější evidence."""
+    hlásících stejný callsign na stejné frekvenci je silnější evidence
+    (princip Log4OM2 "spot reliability" filtru -- viz RELIABLE_SPOTTER_COUNT
+    výše a is_reliable_spot)."""
     weight = cfg.weights.get("reliability", 0)
     n_spotters = len(candidate.spotters)
     if n_spotters == 0:
@@ -124,6 +135,16 @@ def _reliability_reason(candidate: Candidate, cfg: ScoringConfig) -> ScoreReason
         max_points=weight,
         detail=f"{n_spotters} nezávislý(ch) spotter(ů): {spotters_txt}",
     )
+
+
+def is_reliable_spot(candidate: Candidate) -> bool:
+    """Log4OM2-styl kontroly reliability spotu pro konzumenty mimo scoring
+    (GUI detail kandidáta, viz web/serialization.py) -- stejný práh
+    nezávislých spotterů jako `_reliability_reason`, ale jako jednoduchý
+    bool místo bodového rozpisu. Vždy vypočítatelné z lokální evidence
+    (žádný "provider neodpověděl" stav), na rozdíl od dřívějšího
+    DX-provider `reliability_percent` pole."""
+    return len(candidate.spotters) >= RELIABLE_SPOTTER_COUNT
 
 
 def _propagation_reason(
