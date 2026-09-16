@@ -38,6 +38,12 @@ specifická pro Station Agent.
    označený `NotImplementedError` "pending" stub — ne mock data vydávaná
    za reálná. Parsovací funkce (text/XML -> `Spot`) naopak testuj naplno
    na fixture datech, protože to ověřitelné je.
+7. **Live audit spouští uživatelský entrypoint.** Při živém ověřování musí
+   auditor spustit stejné `start_station_agent.bat`, které používá koncový
+   uživatel, a tento launcher musí načíst kořenový ignorovaný `config.yaml`.
+   `config.example.yaml`, izolovaný mock config ani přepnutí `rig.mode` na
+   `mock` nejsou platnou náhradou. Pro live scénář se ověří skutečné spojení
+   na nakonfigurovaný `rigctld`; bez něj je výsledek jen `runtime: nedostupné`.
 
 ## Styl a konvence
 
