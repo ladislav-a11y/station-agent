@@ -134,7 +134,14 @@ h1 {
    Pořadí v DOM odpovídá pořadí pro úzká okna (viz media query níže). */
 .dashboard {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+  /* Kandidáti dostávají většinový podíl šířky (3fr vs 1fr), aby jedenáct
+     sloupců tabulky nebylo zbytečně stlačené, a max-width je zvýšený z
+     1500px, aby rámeček na běžně širokých oknech nepůsobil jako úzký pruh
+     striktně vystředěný uprostřed obrazovky s velkými prázdnými okraji.
+     Procentuální šířky sloupců v #candidates-table (viz níže) zůstávají
+     nezměněné a stále garantují, že se tabulka nevylije z rámečku bez
+     ohledu na výslednou šířku kontejneru. */
+  grid-template-columns: minmax(0, 3fr) minmax(18rem, 1fr);
   /* Řádek s filtry má výšku podle obsahu, řádek s AUTO TUNE pohltí zbytek
      výšky kandidátů -- jinak by se výška dlouhé tabulky rozdělila mezi oba
      řádky a AUTO TUNE by "spadl" hluboko pod rychlé filtry s prázdnou
@@ -147,7 +154,7 @@ h1 {
     "notifications history"
     "legend legend";
   gap: 1rem;
-  max-width: 1500px;
+  max-width: 1800px;
   margin: 0 auto;
   align-items: start;
 }
@@ -746,7 +753,7 @@ tr.candidate-row.selected {
   }
 
   .dashboard {
-    grid-template-columns: minmax(0, 1.6fr) minmax(16rem, 1fr);
+    grid-template-columns: minmax(0, 2.2fr) minmax(16rem, 1fr);
   }
 }
 
