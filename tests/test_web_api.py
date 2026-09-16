@@ -227,8 +227,12 @@ class WebApiTests(unittest.TestCase):
         # se při nedostatku místa zalomí, aby stejný invariant neobcházel.
         candidates = stylesheet[stylesheet.index("#candidates-table {"):]
         self.assertIn("table-layout: fixed", candidates)
+        self.assertIn("overflow-wrap: break-word", candidates)
         detail_toggle = stylesheet[stylesheet.index(".detail-toggle {"):]
         self.assertIn("white-space: normal", detail_toggle)
+        # Skryté nastavení ladění se po rozbalení musí vejít do rámečku AUTO TUNE.
+        autotune_form = stylesheet[stylesheet.index("#autotune-form {"):]
+        self.assertIn("flex-wrap: wrap", autotune_form)
         # V úzkém okně je panel kandidátů vodorovný scroll kontejner, kde by
         # se sticky záhlaví lepilo dovnitř panelu a posun o výšku hlavičky
         # ho odsunul pod první řádek -- tam musí být záhlaví běžné (static).

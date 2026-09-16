@@ -348,6 +348,7 @@ h1 {
 
 .autotune-settings {
   margin-bottom: 0.75rem;
+  max-width: 100%;
 }
 
 .autotune-settings summary {
@@ -386,11 +387,29 @@ h1 {
   white-space: nowrap;
 }
 
+#mode-filters,
+#band-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  max-width: 100%;
+}
+
 #autotune-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: center;
+  max-width: 100%;
+}
+
+#autotune-form label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  max-width: 100%;
 }
 
 .autotune-mode-box {
@@ -527,6 +546,13 @@ th, td {
    záměrně vodorovně scrolluje (viz komentář u position: static).*/
 #candidates-table {
   table-layout: fixed;
+  width: 100%;
+}
+
+#candidates-table th,
+#candidates-table td {
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 #candidates-table th:nth-child(1) { width: 9%; }  /* Callsign */
