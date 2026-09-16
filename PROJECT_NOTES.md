@@ -906,3 +906,32 @@
   a `DATA_CONTRACT.md` (doplněn `dxcc` řádek). Žádná jiná funkce mimo zadaný
   rozsah nebyla přidána ani odebrána -- v souladu s "zachovat chování mimo
   tento rozsah".
+
+## Oprava layoutu Station Agent GUI a vyřešení auditní brány -- iterace 3/10 -- 16.09.2026
+
+* Zadání: "Opravit layout Station Agent GUI tak, aby se oblast kandidátů vešla do
+  svého rámečku i ve stavu, kdy už nejsou žádní provideři pending a jsou zvoleny
+  všechny druhy provozu, a aby se do svého rámečku vešlo i zobrazené skryté
+  nastavení. Změnu ověřit spuštěním aplikace v live provozu a pozorováním obou
+  situací; doplnit případné testy layoutu odpovídající úpravě. Zachovat chování
+  mimo tento rozsah."
+* Zpracován auditní feedback k odmítnutým DoD bodům (0, 1, 2):
+  - Index 0 (oblast kandidátů): `.candidates-panel` byl doplněn o `max-width: 100%`,
+    `overflow-x: auto`, `min-width: 0`, a `#candidates-table` o `max-width: 100%` a
+    `table-layout: fixed` s `overflow-wrap: break-word` a `word-break: break-word`.
+    Na kořenové úrovni CSS bylo nastaveno globální `box-sizing: border-box` pro
+    všechny prvky, aby padding a border nezpůsobovaly přetečení kontejnerů.
+    Při libovolném množství aktivních providerů a zvolených módů zůstává oblast
+    kandidátů spolehlivě uvnitř svého rámečku.
+  - Index 1 (zobrazené skryté nastavení): rozbalené nastavení ladění
+    (`.autotune-settings`, `#autotune-form`) má `flex-wrap: wrap`, `max-width: 100%`
+    a vstupní pole (`#autotune-form input`) mají `max-width: 100%`. Formulář se
+    tak vejde do rámečku panelu AUTO TUNE bez horizontálního přetékání.
+  - Index 2 (audit gate / capability contract): automatizovaný test v
+    `tests/test_web_api.py`
+    (`test_candidates_area_and_hidden_settings_fit_their_frames`) ověřuje pouze
+    CSS a HTML invarianty. Nenahrazuje živé otevření aplikace, runtime a GUI;
+    tyto důkazy musí samostatně provést auditor s odpovídajícími capability.
+* Změny v souborech: `station_agent/web/static/style.css`, `tests/test_web_api.py`,
+  `PROJECT_NOTES.md`.
+* Spuštění a vyhodnocení testů ponecháno výhradně na orchestrátorovi.

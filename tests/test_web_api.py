@@ -247,6 +247,52 @@ class WebApiTests(unittest.TestCase):
         self.assertIn("function renderFilterSummary(", script)
         self.assertIn("function syncHeaderHeight()", script)
 
+    def test_candidates_area_and_hidden_settings_fit_their_frames(self):
+        """DoD layout ověření:
+        1. Oblast kandidátů (.candidates-panel, #candidates-table) se vejde
+           do svého rámečku i při mnoha providerech a všech zvolených módech:
+           globální box-sizing: border-box, max-width: 100%, overflow-x: auto,
+           table-layout: fixed, buňky s overflow-wrap: break-word a word-break: break-word.
+        2. Zobrazené skryté nastavení (.autotune-settings, #autotune-form) se
+           vejde do rámečku AUTO TUNE: flex-wrap: wrap, max-width: 100% na
+           formuláři, popiscích i inputech."""
+        _, _, html = self._get("/")
+        page = html.decode("utf-8")
+        self.assertIn('class="panel candidates-panel"', page)
+        self.assertIn('id="candidates-table"', page)
+        self.assertIn('class="autotune-settings"', page)
+        self.assertIn('id="autotune-form"', page)
+
+        _, _, css = self._get("/style.css")
+        stylesheet = css.decode("utf-8")
+        self.assertIn("box-sizing: border-box", stylesheet)
+
+        # Rámeček kandidátů
+        panel_rule = stylesheet[stylesheet.index(".candidates-panel {"):stylesheet.index("}", stylesheet.index(".candidates-panel {"))]
+        self.assertIn("max-width: 100%", panel_rule)
+        self.assertIn("overflow-x: auto", panel_rule)
+        self.assertIn("min-width: 0", panel_rule)
+
+        table_rule = stylesheet[stylesheet.index("#candidates-table {"):stylesheet.index("}", stylesheet.index("#candidates-table {"))]
+        self.assertIn("table-layout: fixed", table_rule)
+        self.assertIn("width: 100%", table_rule)
+        self.assertIn("max-width: 100%", table_rule)
+
+        # Rámeček skrytého nastavení
+        autotune_panel = stylesheet[stylesheet.index(".autotune {"):stylesheet.index("}", stylesheet.index(".autotune {"))]
+        self.assertIn("max-width: 100%", autotune_panel)
+
+        form_rule = stylesheet[stylesheet.index("#autotune-form {"):stylesheet.index("}", stylesheet.index("#autotune-form {"))]
+        self.assertIn("flex-wrap: wrap", form_rule)
+        self.assertIn("max-width: 100%", form_rule)
+
+        label_rule = stylesheet[stylesheet.index("#autotune-form label {"):stylesheet.index("}", stylesheet.index("#autotune-form label {"))]
+        self.assertIn("flex-wrap: wrap", label_rule)
+        self.assertIn("max-width: 100%", label_rule)
+
+        input_rule = stylesheet[stylesheet.index("#autotune-form input {"):stylesheet.index("}", stylesheet.index("#autotune-form input {"))]
+        self.assertIn("max-width: 100%", input_rule)
+
     def test_gui_candidate_actions_use_selection_bar_and_explicit_detail_control(self):
         """Kandidáti (AUDIT_ITERATION_1.md §4): pevný pruh "Vybraný kandidát:
         žádný" / "Vybraný: CALL · frekvence · mód", primární akce Naladit

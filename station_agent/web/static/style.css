@@ -1,3 +1,9 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   color-scheme: light dark;
   --border: #8884;
@@ -149,15 +155,21 @@ h1 {
 .dashboard > .panel {
   margin-top: 1rem;
   min-width: 0;
+  max-width: 100%;
 }
 
-.candidates-panel { grid-area: candidates; }
-.filters { grid-area: filters; }
-.autotune { grid-area: autotune; }
-.propagation-panel { grid-area: propagation; }
-.notifications-panel { grid-area: notifications; }
-.history-panel { grid-area: history; }
-.legend { grid-area: legend; }
+.candidates-panel {
+  grid-area: candidates;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.filters { grid-area: filters; min-width: 0; max-width: 100%; }
+.autotune { grid-area: autotune; min-width: 0; max-width: 100%; }
+.propagation-panel { grid-area: propagation; min-width: 0; max-width: 100%; }
+.notifications-panel { grid-area: notifications; min-width: 0; max-width: 100%; }
+.history-panel { grid-area: history; min-width: 0; max-width: 100%; }
+.legend { grid-area: legend; min-width: 0; max-width: 100%; }
 
 .autotune-status {
   font-weight: 600;
@@ -412,6 +424,10 @@ h1 {
   max-width: 100%;
 }
 
+#autotune-form input {
+  max-width: 100%;
+}
+
 .autotune-mode-box {
   display: flex;
   flex-wrap: wrap;
@@ -547,6 +563,7 @@ th, td {
 #candidates-table {
   table-layout: fixed;
   width: 100%;
+  max-width: 100%;
 }
 
 #candidates-table th,
