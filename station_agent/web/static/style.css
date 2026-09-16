@@ -518,6 +518,29 @@ th, td {
   vertical-align: top;
 }
 
+/* S rostoucím počtem sloupců (Bearing/Rotátor/Vzdálenost zvlášť) by tabulka
+   s výchozím table-layout: auto přerostla šířku panelu kandidátů a vylila
+   se přes okraj rámečku do sousedního sloupce mřížky (ověřeno v živém GUI
+   na 1280 px). Pevné procentuální šířky drží tabulku přesně na 100 % šířky
+   panelu; obsah, který se nevejde, se zalomí, ne přeteče. Na úzkém okně
+   (viz media query níže) se vrací zpět na auto -- tam se místo zalomení
+   záměrně vodorovně scrolluje (viz komentář u position: static).*/
+#candidates-table {
+  table-layout: fixed;
+}
+
+#candidates-table th:nth-child(1) { width: 9%; }  /* Callsign */
+#candidates-table th:nth-child(2) { width: 15%; } /* DXCC / země */
+#candidates-table th:nth-child(3) { width: 10%; } /* Frekvence */
+#candidates-table th:nth-child(4) { width: 7%; }  /* Mód */
+#candidates-table th:nth-child(5) { width: 9%; }  /* Čerstvost */
+#candidates-table th:nth-child(6) { width: 8%; }  /* Zdroje */
+#candidates-table th:nth-child(7) { width: 6%; }  /* Skóre */
+#candidates-table th:nth-child(8) { width: 7%; }  /* Bearing */
+#candidates-table th:nth-child(9) { width: 7%; }  /* Rotátor */
+#candidates-table th:nth-child(10) { width: 8%; } /* Vzdálenost */
+#candidates-table th:nth-child(11) { width: 14%; } /* Detail */
+
 /* Připnuté záhlaví tabulky kandidátů pod připnutou hlavičkou aplikace;
    --app-header-height nastavuje app.js syncHeaderHeight(). */
 #candidates-table thead th {
@@ -531,7 +554,10 @@ th, td {
 .detail-toggle {
   font-size: 0.8rem;
   padding: 0.15rem 0.5rem;
-  white-space: nowrap;
+  /* Sloupec Detail má na úzším desktopu jen ~14 % šířky tabulky (viz
+     table-layout: fixed výš) -- tlačítko se smí zalomit na dva řádky
+     místo přetečení přes okraj panelu. */
+  white-space: normal;
 }
 
 .detail-toggle[aria-expanded="true"] {
@@ -722,6 +748,13 @@ tr.candidate-row.selected {
 
   table {
     min-width: 760px;
+  }
+
+  /* Úzké okno scrolluje vodorovně (viz .candidates-panel/table výš), takže
+     tabulka se má řídit svým obsahem přes min-width, ne pevnými procenty
+     z table-layout: fixed nastavenými pro desktop výš. */
+  #candidates-table {
+    table-layout: auto;
   }
 
   .candidates-panel h2::after {

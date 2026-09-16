@@ -222,12 +222,21 @@ class WebApiTests(unittest.TestCase):
         # Připnuté záhlaví tabulky kandidátů.
         self.assertIn("#candidates-table thead th", stylesheet)
         self.assertIn("position: sticky", stylesheet[stylesheet.index("#candidates-table thead th"):])
+        # Na desktopu nesmí široká tabulka kandidátů přetéct z levého panelu
+        # přes pravý sloupec: pevný layout ji drží v rámečku. Ovladač detailu
+        # se při nedostatku místa zalomí, aby stejný invariant neobcházel.
+        candidates = stylesheet[stylesheet.index("#candidates-table {"):]
+        self.assertIn("table-layout: fixed", candidates)
+        detail_toggle = stylesheet[stylesheet.index(".detail-toggle {"):]
+        self.assertIn("white-space: normal", detail_toggle)
         # V úzkém okně je panel kandidátů vodorovný scroll kontejner, kde by
         # se sticky záhlaví lepilo dovnitř panelu a posun o výšku hlavičky
         # ho odsunul pod první řádek -- tam musí být záhlaví běžné (static).
         narrow = stylesheet[stylesheet.index("@media (max-width: 760px)"):]
         self.assertIn("#candidates-table thead th", narrow)
         self.assertIn("position: static", narrow[narrow.index("#candidates-table thead th"):])
+        self.assertIn("#candidates-table", narrow)
+        self.assertIn("table-layout: auto", narrow[narrow.index("#candidates-table"):])
 
         _, _, javascript = self._get("/app.js")
         script = javascript.decode("utf-8")

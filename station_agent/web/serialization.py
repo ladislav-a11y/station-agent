@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from station_agent.autotune import TuneDecision
 from station_agent.bandplan import freq_to_band
+from station_agent.bearing import rotator_bearing_deg
 from station_agent.models import Candidate, RigState
+from station_agent.scoring import is_reliable_spot
 
 
 def candidate_to_dict(candidate: Candidate) -> dict:
@@ -30,8 +32,17 @@ def candidate_to_dict(candidate: Candidate) -> dict:
         "confirming_sources": sorted(candidate.confirming_sources),
         "spotters": sorted(candidate.spotters),
         "best_snr_db": candidate.best_snr_db,
-        "reliability_percent": candidate.reliability_percent,
+        # Log4OM2-styl: reliabilita se odvozuje z počtu nezávislých
+        # spotterů/potvrzení spotu (scoring.RELIABLE_SPOTTER_COUNT), ne z
+        # identity DX cluster providera -- viz scoring.is_reliable_spot a
+        # DX_PROVIDER_RELIABILITY_RESEARCH.md.
+        "reliable": is_reliable_spot(candidate),
         "bearing_deg": (round(candidate.bearing_deg, 1) if candidate.bearing_deg is not None else None),
+        "rotator_bearing_deg": (
+            round(rotator_bearing_deg(candidate.bearing_deg), 1)
+            if candidate.bearing_deg is not None
+            else None
+        ),
         "distance_km": (round(candidate.distance_km, 0) if candidate.distance_km is not None else None),
         "score": (
             {
@@ -67,6 +78,11 @@ def rig_state_to_dict(state: RigState | None) -> dict | None:
         "score": state.score,
         "country": state.country,
         "bearing_deg": state.bearing_deg,
+        "rotator_bearing_deg": (
+            rotator_bearing_deg(state.bearing_deg)
+            if state.bearing_deg is not None
+            else None
+        ),
         "distance_km": state.distance_km,
     }
 

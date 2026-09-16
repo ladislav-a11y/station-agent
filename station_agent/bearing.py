@@ -121,6 +121,21 @@ def initial_bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> f
     return (bearing + 360.0) % 360.0
 
 
+def rotator_bearing_deg(bearing: float) -> float:
+    """Převede skutečný azimut 0-360° na stupnici rotátoru 90-270°.
+
+    Rotátor má 0° na jihu a anténa má stejný vyzařovací diagram dopředu
+    i dozadu, takže lze vždy použít ekvivalentní polohu o 180° a mechanicky
+    zůstat pouze v rozsahu 90-270°.
+    """
+    value = float(bearing) % 360.0
+    if value < 90.0:
+        value += 180.0
+    elif value > 270.0:
+        value -= 180.0
+    return value
+
+
 def bearing_and_distance(
     qth_lat: float, qth_lon: float, target_lat: float, target_lon: float
 ) -> tuple[float, float]:

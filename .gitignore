@@ -9,4 +9,10 @@ config.yaml
 build/
 dist/
 
+# Temporary GUI/browser profiles and live verification captures.
+_iter_layout*/
+_iter1_*
+_debug_hang*
+_gui_verify*
+
 *.sqlite3-journal

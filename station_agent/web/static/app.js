@@ -197,7 +197,7 @@ function renderCandidates() {
   if (filtered.length === 0) {
     const tr = document.createElement("tr");
     tr.className = "empty-row";
-    tr.innerHTML = `<td colspan="9">Žádní kandidáti pro aktuální filtry.</td>`;
+    tr.innerHTML = `<td colspan="11">Žádní kandidáti pro aktuální filtry.</td>`;
     tbody.appendChild(tr);
     renderTuneControls();
     return;
@@ -210,9 +210,9 @@ function renderCandidates() {
     row.className = "candidate-row" + (isSelected ? " selected" : "");
     const country = c.country || (c.dxcc && c.dxcc.name) || "?";
     const dxcc = c.dxcc && c.dxcc.continent ? `${country} (${c.dxcc.continent})` : country;
-    const bearing = c.bearing_deg != null
-      ? `${c.bearing_deg}° / ${c.distance_km ?? "?"} km`
-      : "-";
+    const bearing = c.bearing_deg != null ? `${c.bearing_deg}°` : "-";
+    const rotatorBearing = c.rotator_bearing_deg != null ? `${c.rotator_bearing_deg}°` : "-";
+    const distance = c.distance_km != null ? `${c.distance_km} km` : "-";
     // V buňce jen zkratky zdrojů; plná uživatelská jména (i technické ID)
     // zůstávají v tooltipu, aby řádek nevytlačovaly.
     const sourcesShort = c.confirming_sources.map(shortSourceName).join(", ");
@@ -222,8 +222,11 @@ function renderCandidates() {
     const scoreTotal = c.score ? c.score.total : 0;
     const ageTooltip = `Spotting je staré ${fmtAgeDetailed(c.age_seconds)}`;
     const bearingTooltip = c.bearing_deg != null
-      ? `Azimuth: ${c.bearing_deg}°, Vzdálenost: ${c.distance_km ?? "?"} km`
+      ? `Skutečný azimut: ${c.bearing_deg}°`
       : "Bearing není dostupný (QTH není nastaveno)";
+    const rotatorTooltip = c.rotator_bearing_deg != null
+      ? `Nastavení rotátoru: ${c.rotator_bearing_deg}° (použitý rozsah 90-270°)`
+      : "Nastavení rotátoru není dostupné";
 
     row.innerHTML = `
       <td><strong>${c.callsign}</strong></td>
@@ -234,7 +237,9 @@ function renderCandidates() {
       <td title="Zdroje: ${sourcesFull}">${sourcesShort}</td>
       <td><span class="score-badge ${scoreClass(scoreTotal)}" title="Skóre: ${scoreTotal}/100">${scoreTotal}</span></td>
       <td title="${bearingTooltip}">${bearing}</td>
-      <td><button type="button" class="detail-toggle" aria-expanded="${isExpanded}" title="Zobrazit důvody skóre a reliabilitu zdroje">${isExpanded ? "Skrýt důvody" : "Důvody skóre"}</button></td>
+      <td title="${rotatorTooltip}"><strong>${rotatorBearing}</strong></td>
+      <td>${distance}</td>
+      <td><button type="button" class="detail-toggle" aria-expanded="${isExpanded}" title="Zobrazit důvody skóre a Log4OM2 reliabilitu spotu">${isExpanded ? "Skrýt důvody" : "Důvody skóre"}</button></td>
     `;
     tbody.appendChild(row);
 
@@ -245,12 +250,12 @@ function renderCandidates() {
           .map((r) => `<li><strong>${r.factor}</strong>: ${r.points}/${r.max_points} -- ${r.detail}</li>`)
           .join("")
       : "";
-    const reliabilityPercent = c.reliability_percent != null
-      ? `${c.reliability_percent.toFixed(1)} %`
-      : "neznámá (provider ji neposkytl)";
+    const reliabilityText = c.reliable
+      ? "spolehlivý spot (2+ nezávislí spotteři potvrdili)"
+      : "nepotvrzený spot (méně než 2 nezávislí spotteři)";
     const reasonsDisplay = isExpanded ? "block" : "none";
-    reasonsRow.innerHTML = `<td colspan="9"><div class="candidate-detail" style="display:${reasonsDisplay}">
-      <div class="candidate-detail-reliability">Reliabilita DX clusteru: ${reliabilityPercent} (procento správnosti spotů ze zdroje)</div>
+    reasonsRow.innerHTML = `<td colspan="11"><div class="candidate-detail" style="display:${reasonsDisplay}">
+      <div class="candidate-detail-reliability">Log4OM2 reliabilita: ${reliabilityText}</div>
       <div class="candidate-detail-sources">Zdroje: ${sourcesFull}</div>
       <div style="font-size: 0.85rem; margin-top: 0.3rem;"><strong>Rozpad skóre:</strong></div>
       <ul class="reasons-list">${reasons}</ul>
@@ -346,7 +351,9 @@ function renderRigStatus(status) {
   const country = rig.callsign ? (rig.country || "?") : "";
   const path = rig.bearing_deg == null
     ? ""
-    : ` · ${rig.bearing_deg.toFixed(0)}° · ${rig.distance_km == null ? "?" : rig.distance_km.toFixed(0)} km`;
+    : ` · bearing ${rig.bearing_deg.toFixed(0)}°`
+      + (rig.rotator_bearing_deg == null ? "" : ` · rotátor ${rig.rotator_bearing_deg.toFixed(0)}°`)
+      + ` · ${rig.distance_km == null ? "?" : rig.distance_km.toFixed(0)} km`;
   const secondary = rig.callsign ? `${country}${path}` : "";
   el.innerHTML = `<span class="rig-primary">${freqMode}${call}</span> ${liveBadge}`
     + (secondary ? `<span class="rig-secondary">${secondary}</span>` : "");
