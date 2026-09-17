@@ -30,9 +30,11 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # vysoký počet nezávislých spotterů to nesmí vykompenzovat. reliability je
 # navíc shora omezena už na RELIABLE_SPOTTER_COUNT spotterů (viz
 # scoring.py), takže víc spotterů nad tento práh skóre dál nezvedá -- proto
-# může mít nízkou váhu, aniž by to reálnou evidenci znehodnotilo. Viz
-# tests/test_scoring.py::test_open_band_outranks_many_spotters_without_conditions
-# a ::test_propagation_dominates_even_when_other_factors_favor_many_spotters.
+# může mít nízkou váhu, aniž by to reálnou evidenci znehodnotilo. Váhy
+# jsou ale jen výchozí nastavení; dominance propagace samotná je zaručena
+# strukturálně hearability gate ve scoring.py (sources/reliability násobeny
+# podílem otevření pásma), takže platí i pro uživatelem přepsané váhy. Viz
+# tests/test_scoring.py::PropagationDominanceTests a DATA_CONTRACT.md sekce 3.
 DEFAULT_SCORING_WEIGHTS: dict[str, float] = {
     "freshness": 15,
     "sources": 15,

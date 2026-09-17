@@ -52,16 +52,30 @@ obsahuje **přesně jeden `ScoreReason` na každý klíč** v
 | Faktor | Evidence | Chování při chybějícím kontextu |
 |---|---|---|
 | `freshness` | `now - candidate.last_seen` vs `spot_max_age_minutes` | vždy dostupné |
-| `sources` | počet `confirming_sources` | vždy dostupné |
+| `sources` | počet `confirming_sources`; **násobeno hearability gate** (viz níže) | vždy dostupné |
 | `needed_dxcc` | `db.is_worked(dxcc.name)` | neznámá DXCC entita -> považuje se za potřebnou (raději upozornit) |
 | `signal` | `best_snr_db` | chybí -> neutrálních 50 % váhy |
-| `reliability` | počet `spotters` (Log4OM2 princip: reliabilita ze spotu, ne z identity providera -- viz `RELIABLE_SPOTTER_COUNT` a `is_reliable_spot`) | žádný spotter -> neutrálních 50 % váhy |
+| `reliability` | počet `spotters` (Log4OM2 princip: reliabilita ze spotu, ne z identity providera -- viz `RELIABLE_SPOTTER_COUNT` a `is_reliable_spot`); **násobeno hearability gate** (viz níže) | žádný spotter -> neutrálních 50 % váhy (rovněž násobeno gate) |
 | `propagation` | hodinový `PropagationContext.band_quality` připravený z aktuálního NOAA Kp/SFI, QTH lokátoru a lokálního slunečního času; scoring sám síť nikdy nevolá. Po chybě zdroje se starý snapshot zahodí a stav API je `verified=false`, aby se žádná hodnota nevydávala za ověřenou. Při nedostupném snapshotu slouží jako fallback `aggregator.band_activity` | chybí snapshot i `band_activity` -> neutrálních 50 % váhy |
 | `path_dx` | `candidate.distance_km` | chybí (QTH nenakonfigurováno) -> neutrálních 50 % váhy |
 
 Chybějící evidence tedy nikdy nepenalizuje kandidáta pod neutrální
 polovinu dané váhy -- viz `tests/test_scoring.py` (`test_*_gives_neutral_*`)
 a `tests/test_mode_aware_fusion.py`.
+
+**Propagace je dominantní faktor -- hearability gate.** `sources` a
+`reliability` měří jen vzdálenou evidenci ("někdo někde stanici slyší"), ne
+šanci na spojení z vlastního QTH. Proto scoring násobí jejich body podílem
+otevření pásma z téhož `propagation` výhledu (`scoring.HEARABILITY_GATED_FACTORS`,
+`_hearability_gate`): zavřené pásmo (0.0) evidenci spotterů vynuluje, plně
+otevřené (1.0) ji nechá beze změny, a `detail` daného `ScoreReason` uvádí
+`"pásmo bez podmínek (propagace X) -> evidence omezena xX"`. Gate se
+**neaplikuje**, když propagace není známa (chybí snapshot i `band_activity`
+-- chybějící kontext nepenalizuje) nebo když má `propagation` váhu 0
+(uživatel ji vypnul). Díky tomu kandidát bez podmínek pro slyšitelnost
+nemůže získat vysoké skóre jen kvůli počtu spotterů **pro libovolné váhy v
+configu** -- viz `tests/test_scoring.py::PropagationDominanceTests`
+(ověřeno s výchozími, staršími i záměrně nepřátelskými vahami).
 
 ## 4. Zdroje evidence (adaptéry) -- živé vs. pending
 

@@ -10,6 +10,15 @@ evidenci: nezávislé spottery, hodinový propagation snapshot připravený mimo
 scoring z NOAA Kp/SFI a QTH, a vzdálenost k QTH. Tento modul sám síť nikdy
 nevolá. Když kontext chybí, používá zdokumentovaný neutrální nebo lokální
 fallback, nikoli vymyšlená data.
+
+Propagace / otevření pásma je DOMINANTNÍ faktor, a to strukturálně, ne jen
+váhou: faktory měřící vzdálenou evidenci ("někdo někde stanici slyší" --
+sources a reliability) jsou násobeny "hearability gate" odvozeným z téhož
+propagation výhledu (viz _hearability_gate). Kandidát bez podmínek pro
+slyšitelnost u vlastního QTH tak nemůže nasbírat vysoké skóre jen kvůli
+vysokému počtu spotterů, ať jsou váhy v configu jakékoli; kandidát na
+otevřeném pásmu je zařazen výš. Gate se neaplikuje, když propagace není
+známa (neutrální fallback) nebo když ji uživatel váhou 0 vypnul.
 """
 
 from __future__ import annotations
@@ -42,6 +51,38 @@ RELIABLE_SPOTTER_COUNT = 2
 # otevřené propagace (viz aggregator.band_activity a _propagation_reason).
 BUSY_BAND_STATION_COUNT = 5
 
+# Faktory, které měří pouze VZDÁLENOU evidenci -- kolik zdrojů/spotterů
+# stanici někde slyší. Bez otevřeného pásma u vlastního QTH tato evidence
+# nic neříká o šanci na spojení, proto jsou jejich body násobeny hearability
+# gate z propagation výhledu (viz _hearability_gate). freshness/needed_dxcc/
+# signal/path_dx gate nemají: nejsou počtem spotterů a jejich hodnota se
+# s propagací nemění (novost DXCC platí i na zavřeném pásmu).
+HEARABILITY_GATED_FACTORS = ("sources", "reliability")
+
+
+def _hearability_gate(cfg: ScoringConfig, outlook: float | None) -> float | None:
+    """Podíl 0-1, kterým se násobí body HEARABILITY_GATED_FACTORS.
+
+    ``outlook`` je propagation podíl z _propagation_outlook (None = propagace
+    neznámá, tj. neutrální fallback). Vrací None (gate se neaplikuje), když:
+    - propagace není známa -- chybějící kontext nesmí penalizovat (viz
+      DATA_CONTRACT.md sekce 3), nebo
+    - uživatel propagaci vypnul váhou 0 -- pak nemá ani gatovat.
+    Jinak je gate přímo propagation podíl: zavřené pásmo (0.0) evidenci
+    spotterů úplně vynuluje, plně otevřené (1.0) ji nechá beze změny."""
+    if outlook is None or cfg.weights.get("propagation", 0) <= 0:
+        return None
+    return max(0.0, min(1.0, outlook))
+
+
+def _apply_hearability_gate(points: float, detail: str, gate: float | None) -> tuple[float, str]:
+    """Škáluje body vzdálené evidence gate podílem a rozšíří detail tak, aby
+    bylo v GUI vidět, PROČ kandidát s mnoha spottery body nedostal."""
+    if gate is None or gate >= 1.0:
+        return points, detail
+    gated = round(points * gate, 1)
+    return gated, f"{detail}; pásmo bez podmínek (propagace {gate:.2f}) -> evidence omezena x{gate:.2f}"
+
 
 def _freshness_reason(candidate: Candidate, cfg: ScoringConfig, now: float) -> ScoreReason:
     max_age_s = max(1.0, cfg.spot_max_age_minutes * 60.0)
@@ -57,18 +98,18 @@ def _freshness_reason(candidate: Candidate, cfg: ScoringConfig, now: float) -> S
     )
 
 
-def _sources_reason(candidate: Candidate, cfg: ScoringConfig) -> ScoreReason:
+def _sources_reason(
+    candidate: Candidate, cfg: ScoringConfig, gate: float | None = None,
+) -> ScoreReason:
     n = len(candidate.confirming_sources)
     fraction = min(1.0, n / 3.0)
     weight = cfg.weights.get("sources", 0)
     points = round(weight * fraction, 1)
     sources_txt = ", ".join(sorted(candidate.confirming_sources)) or "žádný"
-    return ScoreReason(
-        factor="sources",
-        points=points,
-        max_points=weight,
-        detail=f"{n} potvrzující zdroj(e): {sources_txt}",
+    points, detail = _apply_hearability_gate(
+        points, f"{n} potvrzující zdroj(e): {sources_txt}", gate,
     )
+    return ScoreReason(factor="sources", points=points, max_points=weight, detail=detail)
 
 
 def _needed_dxcc_reason(candidate: Candidate, cfg: ScoringConfig, is_needed: bool) -> ScoreReason:
@@ -104,23 +145,28 @@ def _signal_reason(candidate: Candidate, cfg: ScoringConfig) -> ScoreReason:
     )
 
 
-def _reliability_reason(candidate: Candidate, cfg: ScoringConfig) -> ScoreReason:
+def _reliability_reason(
+    candidate: Candidate, cfg: ScoringConfig, gate: float | None = None,
+) -> ScoreReason:
     """Spolehlivost evidence -- kolik NEZÁVISLÝCH spotterů/skimmerů/přijímačů
     stanici potvrdilo (napříč zdroji i uvnitř jednoho zdroje). Jeden
     ojedinělý spotter může mít překlep/chybu; víc odlišných lidí/skimmerů
     hlásících stejný callsign na stejné frekvenci je silnější evidence
     (princip Log4OM2 "spot reliability" filtru -- viz RELIABLE_SPOTTER_COUNT
-    výše a is_reliable_spot)."""
+    výše a is_reliable_spot).
+
+    ``gate`` (viz _hearability_gate) škáluje i neutrální fallback pro
+    neznámého spottera -- jinak by na zavřeném pásmu "spotter neznámý"
+    skóroval víc než potvrzení spotteři, což by obrátilo záruku
+    test_one_confirmed_spotter_outscores_unknown_spotter."""
     weight = cfg.weights.get("reliability", 0)
     n_spotters = len(candidate.spotters)
     if n_spotters == 0:
         points = round(weight * 0.5, 1)
-        return ScoreReason(
-            factor="reliability",
-            points=points,
-            max_points=weight,
-            detail="spotter neznámý (neutrální hodnocení spolehlivosti)",
+        points, detail = _apply_hearability_gate(
+            points, "spotter neznámý (neutrální hodnocení spolehlivosti)", gate,
         )
+        return ScoreReason(factor="reliability", points=points, max_points=weight, detail=detail)
     # Known evidence must always outscore the "unknown" neutral baseline (0.5)
     # above -- even a single confirmed spotter is strictly better than no
     # spotter data at all, so the scale starts at 0.5 and climbs to 1.0 at
@@ -129,12 +175,10 @@ def _reliability_reason(candidate: Candidate, cfg: ScoringConfig) -> ScoreReason
     fraction = min(1.0, 0.5 + 0.5 * n_spotters / RELIABLE_SPOTTER_COUNT)
     points = round(weight * fraction, 1)
     spotters_txt = ", ".join(sorted(candidate.spotters))
-    return ScoreReason(
-        factor="reliability",
-        points=points,
-        max_points=weight,
-        detail=f"{n_spotters} nezávislý(ch) spotter(ů): {spotters_txt}",
+    points, detail = _apply_hearability_gate(
+        points, f"{n_spotters} nezávislý(ch) spotter(ů): {spotters_txt}", gate,
     )
+    return ScoreReason(factor="reliability", points=points, max_points=weight, detail=detail)
 
 
 def is_reliable_spot(candidate: Candidate) -> bool:
@@ -147,40 +191,34 @@ def is_reliable_spot(candidate: Candidate) -> bool:
     return len(candidate.spotters) >= RELIABLE_SPOTTER_COUNT
 
 
-def _propagation_reason(
-    candidate: Candidate, cfg: ScoringConfig, band_activity: dict[str, int] | None,
-    propagation: PropagationContext | None = None,
-) -> ScoreReason:
-    """Use the prepared hourly outlook; fall back to observed band activity."""
-    weight = cfg.weights.get("propagation", 0)
+def _propagation_outlook(
+    candidate: Candidate, band_activity: dict[str, int] | None,
+    propagation: PropagationContext | None,
+) -> tuple[float | None, str]:
+    """Podíl otevření pásma 0-1 a jeho zdůvodnění. Use the prepared hourly
+    outlook; fall back to observed band activity. None = propagace není
+    známa (neutrální fallback), což zároveň vypíná hearability gate."""
     if propagation is not None and candidate.band in propagation.band_quality:
         fraction = propagation.band_quality[candidate.band]
-        points = round(weight * fraction, 1)
-        return ScoreReason(
-            factor="propagation",
-            points=points,
-            max_points=weight,
-            detail=(f"hodinový model {candidate.band}={fraction:.3f}; "
-                    f"{propagation.explanation}; zdroj {propagation.source}"),
-        )
+        return fraction, (f"hodinový model {candidate.band}={fraction:.3f}; "
+                          f"{propagation.explanation}; zdroj {propagation.source}")
     if band_activity is None:
-        points = round(weight * 0.5, 1)
-        return ScoreReason(
-            factor="propagation",
-            points=points,
-            max_points=weight,
-            detail="aktivita pásma není k dispozici (neutrální hodnocení propagace)",
-        )
+        return None, "aktivita pásma není k dispozici (neutrální hodnocení propagace)"
     count = band_activity.get(candidate.band, 0)
     # 1 stanice na pásmu (kandidát sám) = zatím žádný signál otevření pásma.
     fraction = max(0.0, min(1.0, (count - 1) / (BUSY_BAND_STATION_COUNT - 1)))
-    points = round(weight * fraction, 1)
-    return ScoreReason(
-        factor="propagation",
-        points=points,
-        max_points=weight,
-        detail=f"{count} odlišných stanic na {candidate.band}; hodinový model není dostupný",
-    )
+    return fraction, f"{count} odlišných stanic na {candidate.band}; hodinový model není dostupný"
+
+
+def _propagation_reason(
+    candidate: Candidate, cfg: ScoringConfig, band_activity: dict[str, int] | None,
+    propagation: PropagationContext | None = None,
+    outlook: tuple[float | None, str] | None = None,
+) -> ScoreReason:
+    weight = cfg.weights.get("propagation", 0)
+    fraction, detail = outlook or _propagation_outlook(candidate, band_activity, propagation)
+    points = round(weight * (0.5 if fraction is None else fraction), 1)
+    return ScoreReason(factor="propagation", points=points, max_points=weight, detail=detail)
 
 
 def _path_dx_reason(candidate: Candidate, cfg: ScoringConfig) -> ScoreReason:
@@ -220,16 +258,19 @@ def score_candidate(
     station_agent.db, viz aggregator.py), aby scoring.py nezávisel přímo na
     SQLite vrstvě. ``band_activity`` je volitelná mapa {band: počet odlišných
     stanic} pro _propagation_reason -- když chybí (např. scoring jednoho
-    kandidáta mimo kontext celého seznamu), faktor je neutrální.
+    kandidáta mimo kontext celého seznamu), faktor je neutrální a hearability
+    gate (viz HEARABILITY_GATED_FACTORS) se neaplikuje.
     """
     now = time.time() if now is None else now
+    outlook = _propagation_outlook(candidate, band_activity, propagation)
+    gate = _hearability_gate(cfg, outlook[0])
     reasons = [
         _freshness_reason(candidate, cfg, now),
-        _sources_reason(candidate, cfg),
+        _sources_reason(candidate, cfg, gate),
         _needed_dxcc_reason(candidate, cfg, is_needed_dxcc(candidate)),
         _signal_reason(candidate, cfg),
-        _reliability_reason(candidate, cfg),
-        _propagation_reason(candidate, cfg, band_activity, propagation),
+        _reliability_reason(candidate, cfg, gate),
+        _propagation_reason(candidate, cfg, band_activity, propagation, outlook=outlook),
         _path_dx_reason(candidate, cfg),
     ]
     total = sum(r.points for r in reasons)
