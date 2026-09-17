@@ -163,6 +163,49 @@ class ScoringTests(unittest.TestCase):
         path_dx = next(r for r in result.reasons if r.factor == "path_dx")
         self.assertAlmostEqual(path_dx.points, self.cfg.weights["path_dx"] * 0.5, places=1)
 
+    def test_open_band_outranks_many_spotters_without_conditions(self):
+        """Propagace/band opening musí být dominantním faktorem: kandidát
+        s mnoha spottery, ale bez otevřeného pásma (propagace) nesmí skórovat
+        výš než kandidát s málo spottery na otevřeném pásmu. Bez slyšitelnosti
+        je počet spotterů irelevantní -- viz DEFAULT_SCORING_WEIGHTS."""
+        many_spotters_closed_band = score_candidate(
+            make_candidate(spotters={"OK1KT", "DL2ABC", "W1AW", "G3ABC", "JA1XYZ"}),
+            self.cfg,
+            is_needed_dxcc=lambda c: True,
+            band_activity={"20m": 1},  # kandidát sám, pásmo zavřené
+        )
+        few_spotters_open_band = score_candidate(
+            make_candidate(spotters={"OK1KT"}),
+            self.cfg,
+            is_needed_dxcc=lambda c: True,
+            band_activity={"20m": 6},  # otevřené pásmo
+        )
+        self.assertGreater(few_spotters_open_band.total, many_spotters_closed_band.total)
+
+    def test_propagation_dominates_even_when_other_factors_favor_many_spotters(self):
+        """Silnější varianta předchozího testu: kandidát bez podmínek pro
+        spojení má navíc maximalizované VŠECHNY ostatní na propagaci
+        nezávislé faktory (SNR, zdroje, vzdálenost) -- i tak musí prohrát
+        s kandidátem na otevřeném pásmu, který má jinak jen výchozí hodnoty."""
+        many_spotters_no_conditions = score_candidate(
+            make_candidate(
+                spotters={"OK1KT", "DL2ABC", "W1AW", "G3ABC", "JA1XYZ"},
+                best_snr_db=30,
+                confirming_sources={"mock", "dx_cluster", "rbn"},
+                distance_km=15_000.0,
+            ),
+            self.cfg,
+            is_needed_dxcc=lambda c: True,
+            band_activity={"20m": 1},
+        )
+        open_band_default_otherwise = score_candidate(
+            make_candidate(spotters={"OK1KT"}),
+            self.cfg,
+            is_needed_dxcc=lambda c: True,
+            band_activity={"20m": 6},
+        )
+        self.assertGreater(open_band_default_otherwise.total, many_spotters_no_conditions.total)
+
 
 if __name__ == "__main__":
     unittest.main()

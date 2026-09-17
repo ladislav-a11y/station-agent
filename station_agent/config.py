@@ -24,13 +24,22 @@ LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 # re-exportuje jako DEFAULT_WEIGHTS, aby nebyly duplikované na dvou místech
 # a nerozjížděly se při rozšiřování o nové faktory. Součet musí dát 100 --
 # viz tests/test_scoring.py::test_weights_sum_to_100.
+#
+# propagation musí zůstat dominantním faktorem vůči reliability: bez
+# otevřeného pásma/dobré propagace se stanice fyzicky nedá slyšet, takže
+# vysoký počet nezávislých spotterů to nesmí vykompenzovat. reliability je
+# navíc shora omezena už na RELIABLE_SPOTTER_COUNT spotterů (viz
+# scoring.py), takže víc spotterů nad tento práh skóre dál nezvedá -- proto
+# může mít nízkou váhu, aniž by to reálnou evidenci znehodnotilo. Viz
+# tests/test_scoring.py::test_open_band_outranks_many_spotters_without_conditions
+# a ::test_propagation_dominates_even_when_other_factors_favor_many_spotters.
 DEFAULT_SCORING_WEIGHTS: dict[str, float] = {
     "freshness": 15,
     "sources": 15,
     "needed_dxcc": 25,
     "signal": 10,
-    "reliability": 10,
-    "propagation": 15,
+    "reliability": 3,
+    "propagation": 22,
     "path_dx": 10,
 }
 
