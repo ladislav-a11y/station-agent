@@ -35,6 +35,41 @@ REASON_FACTORS = {
 }
 
 
+class ConnectionPotentialTests(unittest.TestCase):
+    def test_uses_only_band_conditions_and_distance_not_dxcc(self):
+        from station_agent.scoring import estimate_connection_potential
+
+        now = time.time()
+        outlook = PropagationContext(
+            kp=1.0, solar_flux=150.0, observed_at=now, source="test",
+            band_quality={"20m": 0.8},
+        )
+        close = make_candidate(distance_km=1_000, dxcc=PREFIX_TABLE["OK"])
+        far = make_candidate(distance_km=10_000, dxcc=PREFIX_TABLE["JA"])
+        self.assertGreater(estimate_connection_potential(close, outlook, now=now),
+                           estimate_connection_potential(far, outlook, now=now))
+        self.assertEqual(estimate_connection_potential(close, outlook, now=now),
+                         estimate_connection_potential(make_candidate(distance_km=1_000, dxcc=None), outlook, now=now))
+        worse = PropagationContext(
+            kp=5.0, solar_flux=90.0, observed_at=now, source="test",
+            band_quality={"20m": 0.2},
+        )
+        self.assertLess(estimate_connection_potential(close, worse, now=now),
+                        estimate_connection_potential(close, outlook, now=now))
+
+    def test_missing_or_stale_evidence_is_unknown_not_fake_percentage(self):
+        from station_agent.scoring import estimate_connection_potential
+
+        now = time.time()
+        good = PropagationContext(kp=1, solar_flux=150, observed_at=now,
+                                  source="test", band_quality={"20m": 0.8})
+        self.assertIsNone(estimate_connection_potential(make_candidate(distance_km=None), good, now=now))
+        self.assertIsNone(estimate_connection_potential(make_candidate(distance_km=1000), None, now=now))
+        stale = PropagationContext(kp=1, solar_flux=150, observed_at=now - 7201,
+                                   source="test", band_quality={"20m": 0.8})
+        self.assertIsNone(estimate_connection_potential(make_candidate(distance_km=1000), stale, now=now))
+
+
 class ScoringTests(unittest.TestCase):
     def setUp(self):
         self.cfg = ScoringConfig(weights=dict(DEFAULT_WEIGHTS), spot_max_age_minutes=15)

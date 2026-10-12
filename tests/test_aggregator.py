@@ -278,16 +278,18 @@ class AggregatorIntegrationTests(unittest.TestCase):
         now = time.time()
         spots = [
             Spot(callsign="OK1BAD", freq_hz=7_040_000, mode="SSB", timestamp=now, source="mock"),
-            Spot(callsign="OK1EDGE", freq_hz=7_052_700, mode="SSB", timestamp=now, source="mock"),
-            Spot(callsign="OK1GOOD", freq_hz=7_086_000, mode="SSB", timestamp=now, source="mock"),
+            Spot(callsign="OK1FT2", freq_hz=7_052_700, mode="SSB", timestamp=now, source="mock"),
+            Spot(callsign="OK1FT8", freq_hz=7_075_000, mode="SSB", timestamp=now, source="dx_cluster"),
+            Spot(callsign="OK1FT4", freq_hz=7_086_000, mode="SSB", timestamp=now, source="mock"),
+            Spot(callsign="OK1GOOD", freq_hz=7_096_000, mode="SSB", timestamp=now, source="mock"),
         ]
         aggregator = Aggregator([], self.db, self.scoring_cfg)
 
-        candidates = aggregator.build_candidates(spots, now=now)
+        candidates = aggregator.build_candidates(spots, allowed_modes={"SSB"}, now=now)
 
-        self.assertEqual({candidate.callsign for candidate in candidates}, {"OK1EDGE", "OK1GOOD"})
-        good = next(candidate for candidate in candidates if candidate.callsign == "OK1GOOD")
-        self.assertEqual((good.freq_hz, good.mode), (7_086_000, "SSB"))
+        self.assertEqual({candidate.callsign for candidate in candidates}, {"OK1GOOD"})
+        good = candidates[0]
+        self.assertEqual((good.freq_hz, good.mode), (7_096_000, "SSB"))
 
     def test_build_candidates_sorted_by_score_descending(self):
         aggregator = Aggregator([MockAdapter()], self.db, self.scoring_cfg, qth_latlon=(50.0, 14.0))
@@ -367,6 +369,22 @@ class AggregatorIntegrationTests(unittest.TestCase):
         busy_reason = next(r for r in busy_band.score.reasons if r.factor == "propagation")
         quiet_reason = next(r for r in quiet_band.score.reasons if r.factor == "propagation")
         self.assertGreaterEqual(busy_reason.points, quiet_reason.points)
+
+    def test_connection_potential_reaches_api_without_changing_priority(self):
+        from station_agent.propagation import PropagationContext
+        from station_agent.web.serialization import candidate_to_dict
+
+        now = time.time()
+        candidates = group_spots_into_candidates([
+            Spot(callsign="JA1XYZ", freq_hz=14_195_000, mode="SSB",
+                 timestamp=now, source="mock", distance_km=1_000),
+        ])
+        outlook = PropagationContext(kp=1, solar_flux=150, observed_at=now,
+                                     source="test", band_quality={"20m": 0.8})
+        attach_scores(candidates, self.scoring_cfg, self.db, now=now, propagation=outlook)
+        result = candidate_to_dict(candidates[0])
+        self.assertEqual(result["connection_potential"], 72)
+        self.assertIsInstance(result["score"]["total"], int)
 
     def test_worked_dxcc_reduces_needed_score(self):
         aggregator = Aggregator([MockAdapter()], self.db, self.scoring_cfg, qth_latlon=(50.0, 14.0))

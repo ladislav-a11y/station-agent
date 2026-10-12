@@ -8,6 +8,8 @@ class ModesTests(unittest.TestCase):
         self.assertEqual(normalize_mode("usb"), "SSB")
         self.assertEqual(normalize_mode("LSB"), "SSB")
         self.assertEqual(normalize_mode("ft8"), "FT8")
+        self.assertEqual(normalize_mode("ft2"), "FT2")
+        self.assertIn("FT2", SUPPORTED_MODES)
         self.assertEqual(normalize_mode("bpsk31"), "PSK31")
 
     def test_unknown_falls_back_to_other_digital(self):

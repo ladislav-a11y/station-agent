@@ -22,7 +22,7 @@ from station_agent.db import Database
 from station_agent.dxcc import callsign_to_dxcc
 from station_agent.models import Candidate, DXCCEntity, Spot
 from station_agent.propagation import PropagationContext
-from station_agent.scoring import score_candidate
+from station_agent.scoring import estimate_connection_potential, score_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +223,9 @@ def attach_scores(
         candidate.score = score_candidate(
             candidate, scoring_cfg, is_needed_dxcc=is_needed, now=now, band_activity=activity,
             propagation=propagation,
+        )
+        candidate.connection_potential = estimate_connection_potential(
+            candidate, propagation, now=now,
         )
 
 

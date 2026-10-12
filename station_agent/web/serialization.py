@@ -44,6 +44,7 @@ def candidate_to_dict(candidate: Candidate) -> dict:
             else None
         ),
         "distance_km": (round(candidate.distance_km, 0) if candidate.distance_km is not None else None),
+        "connection_potential": candidate.connection_potential,
         "score": (
             {
                 "total": candidate.score.total,

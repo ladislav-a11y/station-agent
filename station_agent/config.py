@@ -272,7 +272,7 @@ DEFAULT_PRESETS: dict[str, FilterPreset] = {
     "digi": FilterPreset(
         label="Jen digi",
         bands=list(SUPPORTED_BANDS),
-        modes=["FT8", "FT4", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"],
+        modes=["FT8", "FT4", "FT2", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"],
     ),
 }
 

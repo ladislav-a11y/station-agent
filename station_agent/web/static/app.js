@@ -4,13 +4,14 @@ const MODE_LABELS = {
   SSB: "SSB",
   FT8: "FT8",
   FT4: "FT4",
+  FT2: "FT2",
   CW: "CW",
   RTTY: "RTTY",
   PSK31: "PSK31",
   PSK63: "PSK63",
   OTHER_DIGITAL: "Other Digital",
 };
-const MODE_ORDER = ["SSB", "FT8", "FT4", "CW", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"];
+const MODE_ORDER = ["SSB", "FT8", "FT4", "FT2", "CW", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"];
 const BAND_ORDER = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"];
 
 const state = {
@@ -220,6 +221,7 @@ function renderCandidates() {
       .map((name) => `${friendlySourceName(name)} (${name})`)
       .join(", ");
     const scoreTotal = c.score ? c.score.total : 0;
+    const potential = c.connection_potential == null ? "?" : `${c.connection_potential}/100`;
     const ageTooltip = `Spotting je staré ${fmtAgeDetailed(c.age_seconds)}`;
     const bearingTooltip = c.bearing_deg != null
       ? `Skutečný azimut: ${c.bearing_deg}°`
@@ -235,7 +237,7 @@ function renderCandidates() {
       <td title="Druh modulace">${MODE_LABELS[c.mode] ?? c.mode}</td>
       <td title="${ageTooltip}">${fmtAge(c.age_seconds)}</td>
       <td title="Zdroje: ${sourcesFull}">${sourcesShort}</td>
-      <td><span class="score-badge ${scoreClass(scoreTotal)}" title="Skóre: ${scoreTotal}/100">${scoreTotal}</span></td>
+      <td title="Priorita pro AUTO TUNE: ${scoreTotal}/100; teoretický index spojení: ${potential} (není pravděpodobnost QSO)"><span class="score-badge ${scoreClass(scoreTotal)}">${scoreTotal}</span><small style="display:block">spojení ${potential}</small></td>
       <td title="${bearingTooltip}">${bearing}</td>
       <td title="${rotatorTooltip}"><strong>${rotatorBearing}</strong></td>
       <td>${distance}</td>

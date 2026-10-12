@@ -23,6 +23,7 @@ známa (neutrální fallback) nebo když ji uživatel váhou 0 vypnul.
 
 from __future__ import annotations
 
+import math
 import time
 
 from station_agent.config import DEFAULT_SCORING_WEIGHTS as DEFAULT_WEIGHTS
@@ -58,6 +59,28 @@ BUSY_BAND_STATION_COUNT = 5
 # signal/path_dx gate nemají: nejsou počtem spotterů a jejich hodnota se
 # s propagací nemění (novost DXCC platí i na zavřeném pásmu).
 HEARABILITY_GATED_FACTORS = ("sources", "reliability")
+
+
+def estimate_connection_potential(
+    candidate: Candidate, propagation: PropagationContext | None, *, now: float | None = None,
+) -> int | None:
+    """Hrubý index 0–100 z podmínek pásma a vzdálenosti, nikoli % úspěšných QSO.
+
+    Kvalita pásma je hodinový model NOAA pro QTH (nikoli výpočet konkrétní
+    trasy). Útlum vzdálenosti exp(-d/10000 km) je záměrně jednoduchá
+    heuristika, nikoli predikce ionosféry, výkonu nebo antén; bez čerstvých
+    podkladů se index neukazuje.
+    """
+    now = time.time() if now is None else now
+    if propagation is None or now - propagation.observed_at > 7200 or now < propagation.observed_at:
+        return None
+    distance = candidate.distance_km
+    quality = propagation.band_quality.get(candidate.band)
+    if (distance is None or quality is None or not math.isfinite(distance)
+            or not math.isfinite(quality) or not 0 <= distance <= MAX_REALISTIC_DISTANCE_KM
+            or not 0 <= quality <= 1):
+        return None
+    return round(100 * quality * math.exp(-distance / 10_000.0))
 
 
 def _hearability_gate(cfg: ScoringConfig, outlook: float | None) -> float | None:

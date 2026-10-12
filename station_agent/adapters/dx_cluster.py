@@ -38,7 +38,7 @@ _LIVE_LINE_RE = re.compile(
     r"(?:\s+<(?P<end_spotter>[^>]+)>)?\s*$"
 )
 
-_MODE_KEYWORDS = ["FT8", "FT4", "PSK31", "PSK63", "RTTY", "CW", "USB", "LSB", "SSB", "JS8"]
+_MODE_KEYWORDS = ["FT8", "FT4", "FT2", "PSK31", "PSK63", "RTTY", "CW", "USB", "LSB", "SSB", "JS8"]
 
 # Maidenhead locator explicitly carried in a cluster comment.  The complete
 # token is required so ordinary award/reference identifiers are not mistaken

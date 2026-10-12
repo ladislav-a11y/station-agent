@@ -83,6 +83,7 @@ class Candidate:
     bearing_deg: float | None = None
     distance_km: float | None = None
     score: ScoreResult | None = None
+    connection_potential: int | None = None
 
     @property
     def age_seconds(self) -> float:

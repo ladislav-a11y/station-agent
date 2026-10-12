@@ -55,6 +55,13 @@ class DXClusterParsingTests(unittest.TestCase):
         self.assertIsNotNone(spot)
         self.assertEqual(spot.mode, "FT4")
         self.assertEqual(spot.freq_hz, 14_140_000)
+
+    def test_ft2_spot_is_recognized_and_normalized_to_dial(self):
+        line = "DX de OK1KT:     7053.2  JA1XYZ       FT2                    1230Z"
+        spot = parse_spot_line(line, now=FIXED_NOW)
+        self.assertIsNotNone(spot)
+        self.assertEqual((spot.mode, spot.freq_hz), ("FT2", 7_052_000))
+
     def test_live_dxspider_line_with_bell_terminators(self):
         line = "DX de UR3QCB:    21074.0  EN35UKR      FT8, Independence Day          0804Z\x07\x07"
         spot = parse_spot_line(line, now=FIXED_NOW)

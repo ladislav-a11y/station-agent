@@ -110,6 +110,13 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("css", content_type)
 
+    def test_connection_potential_is_labeled_as_index_not_probability(self):
+        _, _, html = self._get("/")
+        _, _, script = self._get("/app.js")
+        self.assertIn("Teoretický index spojení", html.decode("utf-8"))
+        self.assertIn("c.connection_potential", script.decode("utf-8"))
+        self.assertIn("není pravděpodobnost", script.decode("utf-8"))
+
     def test_gui_has_visible_shutdown_button_wired_to_shutdown_endpoint(self):
         _, _, html = self._get("/")
         page = html.decode("utf-8")

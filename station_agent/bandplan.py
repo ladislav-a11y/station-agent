@@ -123,6 +123,14 @@ def validate_mode_frequency(
         occupied_upper = freq_hz if freq_hz < 10_000_000 else freq_hz + rule.max_bandwidth_hz
         if occupied_lower < rule.lower_hz or occupied_upper > rule.upper_hz:
             return ModeFrequencyValidation(False, band, normalized, rule.rule_id, "obsazené spektrum SSB přesahuje hranici segmentu", rule.source_revision)
+        for digital_mode, bands in DIGITAL_DIAL_FREQUENCIES_HZ.items():
+            for dial_hz in bands.get(band, []):
+                if abs(freq_hz - dial_hz) <= SSB_DIGITAL_GUARD_HZ:
+                    return ModeFrequencyValidation(
+                        False, band, normalized, rule.rule_id,
+                        f"SSB je v ochranném okně ±5 kHz od {digital_mode} {dial_hz} Hz",
+                        rule.source_revision,
+                    )
 
     return ModeFrequencyValidation(True, band, normalized, rule.rule_id, "kombinace odpovídá provoznímu segmentu", rule.source_revision)
 
@@ -179,6 +187,8 @@ def infer_mode_from_frequency(freq_hz: int) -> str:
             return "SSB"
 
     return ""
+# Pro SSB chráníme dial frekvence digitálních módů včetně obou hran ±5 kHz.
+SSB_DIGITAL_GUARD_HZ = 5_000
 DIGITAL_DIAL_FREQUENCIES_HZ: dict[str, dict[str, list[int]]] = {
     "FT8": {
         "160m": [1_840_000],
@@ -206,6 +216,20 @@ DIGITAL_DIAL_FREQUENCIES_HZ: dict[str, dict[str, list[int]]] = {
         "10m": [28_180_000],
         "6m": [50_318_000],
     },
+    # Veřejně uváděné testovací body FT2 (DXZone, 2026); pro 6 m není
+    # doložený bod, proto jej nehádáme. Ochrana FT8/FT4 na 6 m zůstává.
+    "FT2": {
+        "160m": [1_843_000],
+        "80m": [3_578_000],
+        "60m": [5_360_000],
+        "40m": [7_052_000],
+        "30m": [10_144_000],
+        "20m": [14_084_000],
+        "17m": [18_108_000],
+        "15m": [21_144_000],
+        "12m": [24_923_000],
+        "10m": [28_184_000],
+    },
 }
 
 def canonical_digital_dial_frequency(
@@ -213,7 +237,7 @@ def canonical_digital_dial_frequency(
     mode: str,
     max_audio_offset_hz: int = 4_000,
 ) -> int:
-    """Vrátí známou dial frequency FT8/FT4, pokud spot leží v jejím audio passbandu."""
+    """Vrátí známou dial frequency FT8/FT4/FT2, pokud spot leží v jejím audio passbandu."""
     mode = mode.upper()
     band = freq_to_band(freq_hz)
     if band is None:

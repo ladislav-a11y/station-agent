@@ -45,6 +45,7 @@ modes:
   - "SSB"
   - "FT8"
   - "FT4"
+  - "FT2"
   - "CW"
   - "RTTY"
   - "PSK31"
@@ -211,7 +212,7 @@ presets:
   all:
     label: "Vše"
     bands: ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
-    modes: ["SSB", "FT8", "FT4", "CW", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"]
+    modes: ["SSB", "FT8", "FT4", "FT2", "CW", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"]
   ssb:
     label: "Jen SSB"
     bands: ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
@@ -223,7 +224,7 @@ presets:
   digi:
     label: "Jen digi"
     bands: ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
-    modes: ["FT8", "FT4", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"]
+    modes: ["FT8", "FT4", "FT2", "RTTY", "PSK31", "PSK63", "OTHER_DIGITAL"]
 
 notifications:
   # Band-opening notifikace -- lokálně odvozené z počtu odlišných stanic
